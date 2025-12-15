@@ -1,10 +1,3 @@
-"""
-Wine Manager - Core functionality for managing Wine environments.
-
-This module provides the core logic for interacting with Wine as an external
-dependency, managing Wine prefixes, and running Windows applications.
-"""
-
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 import subprocess
@@ -15,20 +8,7 @@ import shlex
 
 
 class WineManager:
-    """
-    Manages Wine environments and application execution.
-    
-    Wine is treated as an external dependency and must be installed separately.
-    """
-    
     def __init__(self, wine_path: Optional[Path] = None, config=None):
-        """
-        Initialize the Wine Manager.
-        
-        Args:
-            wine_path: Path to Wine executable. If None, will search system PATH.
-            config: Config object for settings. If None, creates new one.
-        """
         from core.config import Config
         self.config = config or Config()
         self.wine_path = wine_path or self._find_wine()
@@ -36,23 +16,14 @@ class WineManager:
         self._load_prefixes()
     
     def _find_wine(self) -> Optional[Path]:
-        """
-        Find Wine executable in system PATH or common locations.
-        
-        Returns:
-            Path to Wine executable or None if not found.
-        """
-        # Check config first
         configured_path = self.config.get("wine_path")
         if configured_path and Path(configured_path).exists():
             return Path(configured_path)
         
-        # Check system PATH
         wine_cmd = shutil.which("wine")
         if wine_cmd:
             return Path(wine_cmd)
         
-        # Check common installation locations
         common_paths = [
             Path("/usr/bin/wine"),
             Path("/usr/local/bin/wine"),
@@ -67,12 +38,6 @@ class WineManager:
         return None
     
     def verify_wine_installation(self) -> bool:
-        """
-        Verify that Wine is installed and accessible.
-        
-        Returns:
-            True if Wine is found, False otherwise.
-        """
         if not self.wine_path or not self.wine_path.exists():
             self.wine_path = self._find_wine()
         
@@ -91,12 +56,6 @@ class WineManager:
             return False
     
     def get_wine_version(self) -> Optional[str]:
-        """
-        Get the installed Wine version.
-        
-        Returns:
-            Wine version string or None if not available.
-        """
         if not self.verify_wine_installation():
             return None
         
@@ -114,55 +73,53 @@ class WineManager:
         
         return None
     
-    def _load_prefixes(self) -> None:
-        """Load all existing Wine prefixes from disk."""
-        prefixes_dir = self.config.get_prefixes_dir()
+    def _load_prefixes(self):
+        from platforms import get_platform
+        platform = get_platform()
+        prefix_dir = platform.get_default_prefix_location()
         
-        if not prefixes_dir.exists():
-            return
-        
-        for item in prefixes_dir.iterdir():
-            if item.is_dir():
-                # Check if it's a valid Wine prefix (has drive_c)
-                if (item / "drive_c").exists():
+        if prefix_dir.exists():
+            for item in prefix_dir.iterdir():
+                if item.is_dir() and (item / "system.reg").exists():
                     self.prefixes[item.name] = item
-    
-    def create_prefix(self, name: str, path: Optional[Path] = None, 
-                     windows_version: str = "win10") -> Tuple[bool, str]:
-        """
-        Create a new Wine prefix.
         
-        Args:
-            name: Name identifier for the prefix
-            path: Path where the prefix should be created. If None, uses default location.
-            windows_version: Windows version to emulate (win10, win7, winxp, etc.)
-            
-        Returns:
-            Tuple of (success, message)
-        """
+        config_prefixes = self.config.get("prefixes", {})
+        for name, path_str in config_prefixes.items():
+            path = Path(path_str)
+            if path.exists():
+                self.prefixes[name] = path
+    
+    def list_prefixes(self) -> List[str]:
+        self._load_prefixes()
+        return sorted(self.prefixes.keys())
+    
+    def create_prefix(self, name: str, windows_version: str = "win10") -> Tuple[bool, str]:
         if not self.verify_wine_installation():
             return False, "Wine is not installed or not accessible"
         
-        # Determine prefix path
-        if path is None:
-            path = self.config.get_prefixes_dir() / name
+        if name in self.prefixes:
+            return False, f"Prefix '{name}' already exists"
         
-        # Check if prefix already exists
-        if path.exists():
-            return False, f"Prefix '{name}' already exists at {path}"
+        from platforms import get_platform
+        platform = get_platform()
+        prefix_dir = platform.get_default_prefix_location()
+        prefix_path = prefix_dir / name
+        
+        if prefix_path.exists():
+            return False, f"Directory already exists at {prefix_path}"
         
         try:
-            # Create directory
-            path.mkdir(parents=True, exist_ok=True)
-            
-            # Set up environment
-            env = os.environ.copy()
-            env["WINEPREFIX"] = str(path)
-            env["WINEARCH"] = self.config.get("default_architecture", "win64")
-            
-            # Initialize prefix with wineboot
+            prefix_path.mkdir(parents=True, exist_ok=False)
+        except OSError as e:
+            return False, f"Failed to create directory: {e}"
+        
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(prefix_path)
+        env["WINEARCH"] = "win64"
+        
+        try:
             result = subprocess.run(
-                [str(self.wine_path), "wineboot", "-i"],
+                [str(self.wine_path), "wineboot", "--init"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -170,165 +127,170 @@ class WineManager:
             )
             
             if result.returncode != 0:
-                return False, f"Failed to initialize prefix: {result.stderr}"
+                shutil.rmtree(prefix_path, ignore_errors=True)
+                return False, f"Wine initialization failed: {result.stderr}"
             
-            # Set Windows version if specified
-            if windows_version:
-                self._set_windows_version(path, windows_version)
+            self._set_windows_version(prefix_path, windows_version)
+            self.prefixes[name] = prefix_path
             
-            # Save prefix metadata
-            metadata = {
-                "name": name,
-                "path": str(path),
-                "windows_version": windows_version,
-                "created": str(Path.cwd()),  # Could use datetime here
-            }
+            config_prefixes = self.config.get("prefixes", {})
+            config_prefixes[name] = str(prefix_path)
+            self.config.set("prefixes", config_prefixes)
+            self.config.save()
             
-            metadata_file = path / "winvora.json"
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            # Add to loaded prefixes
-            self.prefixes[name] = path
-            
-            return True, f"Prefix '{name}' created successfully"
+            return True, f"Prefix '{name}' created successfully at {prefix_path}"
             
         except subprocess.TimeoutExpired:
-            return False, "Timeout while creating prefix"
+            shutil.rmtree(prefix_path, ignore_errors=True)
+            return False, "Wine initialization timed out"
         except Exception as e:
-            return False, f"Error creating prefix: {str(e)}"
+            shutil.rmtree(prefix_path, ignore_errors=True)
+            return False, f"Failed to create prefix: {e}"
     
-    def _set_windows_version(self, prefix_path: Path, version: str) -> None:
-        """Set Windows version for a prefix using winecfg."""
+    def _set_windows_version(self, prefix_path: Path, version: str):
+        version_map = {
+            "win10": "win10",
+            "win8": "win8",
+            "win7": "win7",
+            "winxp": "winxp",
+        }
+        
+        wine_version = version_map.get(version, "win10")
+        
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(prefix_path)
+        
         try:
-            env = os.environ.copy()
-            env["WINEPREFIX"] = str(prefix_path)
-            
-            # Use reg add to set Windows version
             subprocess.run(
-                [str(self.wine_path), "reg", "add",
-                 "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion",
-                 "/v", "CurrentVersion", "/d", version, "/f"],
+                [str(self.wine_path), "winecfg", f"/v:{wine_version}"],
                 env=env,
                 capture_output=True,
                 timeout=10
             )
-        except Exception:
-            pass  # Non-critical operation
+        except (subprocess.TimeoutExpired, Exception):
+            pass
     
     def delete_prefix(self, name: str) -> Tuple[bool, str]:
-        """
-        Delete a Wine prefix.
-        
-        Args:
-            name: Name of the prefix to delete
-            
-        Returns:
-            Tuple of (success, message)
-        """
         if name not in self.prefixes:
             return False, f"Prefix '{name}' not found"
         
+        prefix_path = self.prefixes[name]
+        
         try:
-            prefix_path = self.prefixes[name]
             shutil.rmtree(prefix_path)
             del self.prefixes[name]
-            return True, f"Prefix '{name}' deleted successfully"
-        except Exception as e:
-            return False, f"Error deleting prefix: {str(e)}"
-    
-    def list_prefixes(self) -> List[str]:
-        """
-        List all managed Wine prefixes.
-        
-        Returns:
-            List of prefix names.
-        """
-        self._load_prefixes()  # Refresh list
-        return list(self.prefixes.keys())
-    
-    def get_prefix_path(self, name: str) -> Optional[Path]:
-        """
-        Get the path to a prefix.
-        
-        Args:
-            name: Name of the prefix
             
-        Returns:
-            Path to the prefix or None if not found.
-        """
-        return self.prefixes.get(name)
+            config_prefixes = self.config.get("prefixes", {})
+            if name in config_prefixes:
+                del config_prefixes[name]
+                self.config.set("prefixes", config_prefixes)
+                self.config.save()
+            
+            return True, f"Prefix '{name}' deleted successfully"
+            
+        except Exception as e:
+            return False, f"Failed to delete prefix: {e}"
     
     def get_prefix_info(self, name: str) -> Optional[Dict]:
-        """
-        Get information about a prefix.
-        
-        Args:
-            name: Name of the prefix
-            
-        Returns:
-            Dictionary with prefix information or None if not found.
-        """
         if name not in self.prefixes:
             return None
         
         prefix_path = self.prefixes[name]
-        metadata_file = prefix_path / "winvora.json"
         
         info = {
             "name": name,
             "path": str(prefix_path),
             "exists": prefix_path.exists(),
-            "has_drive_c": (prefix_path / "drive_c").exists(),
         }
         
-        # Load metadata if available
-        if metadata_file.exists():
-            try:
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-                    info.update(metadata)
-            except Exception:
-                pass
+        if prefix_path.exists():
+            system_reg = prefix_path / "system.reg"
+            if system_reg.exists():
+                info["windows_version"] = self._get_windows_version(prefix_path)
         
         return info
     
-    def run_application(self, prefix: str, executable: Path, 
-                       args: Optional[List[str]] = None,
-                       background: bool = False) -> Tuple[bool, str]:
-        """
-        Run a Windows application in a specific Wine prefix.
+    def _get_windows_version(self, prefix_path: Path) -> str:
+        system_reg = prefix_path / "system.reg"
+        if not system_reg.exists():
+            return "Unknown"
         
-        Args:
-            prefix: Name of the Wine prefix to use
-            executable: Path to the Windows executable
-            args: Additional arguments to pass to the application
-            background: Run in background without waiting
-            
-        Returns:
-            Tuple of (success, message/output)
-        """
+        try:
+            with open(system_reg, 'r', encoding='utf-16-le', errors='ignore') as f:
+                content = f.read()
+                if "Windows 10" in content or "win10" in content:
+                    return "Windows 10"
+                elif "Windows 8" in content or "win8" in content:
+                    return "Windows 8"
+                elif "Windows 7" in content or "win7" in content:
+                    return "Windows 7"
+                elif "Windows XP" in content or "winxp" in content:
+                    return "Windows XP"
+        except Exception:
+            pass
+        
+        return "Unknown"
+    
+    def install_application(self, prefix_name: str, installer_path: Path, 
+                          args: Optional[List[str]] = None) -> Tuple[bool, str]:
         if not self.verify_wine_installation():
             return False, "Wine is not installed"
         
-        if prefix not in self.prefixes:
-            return False, f"Prefix '{prefix}' not found"
+        if prefix_name not in self.prefixes:
+            return False, f"Prefix '{prefix_name}' not found"
         
-        if not executable.exists() and not str(executable).startswith('C:'):
-            return False, f"Executable not found: {executable}"
+        if not installer_path.exists():
+            return False, f"Installer not found: {installer_path}"
+        
+        prefix_path = self.prefixes[prefix_name]
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(prefix_path)
+        
+        cmd = [str(self.wine_path), str(installer_path)]
+        if args:
+            cmd.extend(args)
         
         try:
-            prefix_path = self.prefixes[prefix]
-            env = os.environ.copy()
-            env["WINEPREFIX"] = str(prefix_path)
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
             
-            # Build command
-            cmd = [str(self.wine_path), str(executable)]
-            if args:
-                cmd.extend(args)
-            
+            if result.returncode == 0:
+                return True, "Installation completed"
+            else:
+                return False, f"Installation failed: {result.stderr}"
+                
+        except subprocess.TimeoutExpired:
+            return False, "Installation timed out"
+        except Exception as e:
+            return False, f"Installation error: {e}"
+    
+    def run_application(self, prefix_name: str, executable_path: Path,
+                       args: Optional[List[str]] = None,
+                       background: bool = False) -> Tuple[bool, str]:
+        if not self.verify_wine_installation():
+            return False, "Wine is not installed"
+        
+        if prefix_name not in self.prefixes:
+            return False, f"Prefix '{prefix_name}' not found"
+        
+        if not executable_path.exists():
+            return False, f"Executable not found: {executable_path}"
+        
+        prefix_path = self.prefixes[prefix_name]
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(prefix_path)
+        
+        cmd = [str(self.wine_path), str(executable_path)]
+        if args:
+            cmd.extend(args)
+        
+        try:
             if background:
-                # Start in background
                 subprocess.Popen(
                     cmd,
                     env=env,
@@ -336,61 +298,38 @@ class WineManager:
                     stderr=subprocess.DEVNULL,
                     start_new_session=True
                 )
-                return True, "Application started in background"
+                return True, f"Application started"
             else:
-                # Run and wait
                 result = subprocess.run(
                     cmd,
                     env=env,
                     capture_output=True,
                     text=True,
-                    timeout=300  # 5 minute timeout
+                    timeout=300
                 )
                 
                 if result.returncode == 0:
-                    return True, result.stdout
+                    return True, "Application exited normally"
                 else:
-                    return False, result.stderr or "Application exited with error"
+                    return False, f"Application failed: {result.stderr}"
                     
         except subprocess.TimeoutExpired:
-            return False, "Application timeout"
+            return False, "Application timed out"
         except Exception as e:
-            return False, f"Error running application: {str(e)}"
+            return False, f"Failed to run application: {e}"
     
-    def install_application(self, prefix: str, installer: Path) -> Tuple[bool, str]:
-        """
-        Install a Windows application from an installer.
-        
-        Args:
-            prefix: Name of the Wine prefix
-            installer: Path to installer (.exe or .msi)
-            
-        Returns:
-            Tuple of (success, message)
-        """
-        return self.run_application(prefix, installer, background=False)
-    
-    def open_winecfg(self, prefix: str) -> Tuple[bool, str]:
-        """
-        Open winecfg for a specific prefix.
-        
-        Args:
-            prefix: Name of the Wine prefix
-            
-        Returns:
-            Tuple of (success, message)
-        """
+    def configure_prefix(self, prefix_name: str) -> Tuple[bool, str]:
         if not self.verify_wine_installation():
             return False, "Wine is not installed"
         
-        if prefix not in self.prefixes:
-            return False, f"Prefix '{prefix}' not found"
+        if prefix_name not in self.prefixes:
+            return False, f"Prefix '{prefix_name}' not found"
+        
+        prefix_path = self.prefixes[prefix_name]
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(prefix_path)
         
         try:
-            prefix_path = self.prefixes[prefix]
-            env = os.environ.copy()
-            env["WINEPREFIX"] = str(prefix_path)
-            
             subprocess.Popen(
                 [str(self.wine_path), "winecfg"],
                 env=env,
@@ -398,66 +337,68 @@ class WineManager:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True
             )
-            return True, "winecfg opened"
+            return True, "Wine configuration opened"
         except Exception as e:
-            return False, f"Error opening winecfg: {str(e)}"
+            return False, f"Failed to open configuration: {e}"
     
     def get_running_processes(self) -> List[Dict]:
-        """
-        Get list of running Wine processes.
-        
-        Returns:
-            List of dictionaries with process information.
-        """
         processes = []
         
         try:
             result = subprocess.run(
-                ["pgrep", "-a", "wine"],
+                ["ps", "aux"],
                 capture_output=True,
-                text=True
+                text=True,
+                timeout=5
             )
             
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line:
-                        parts = line.split(None, 1)
-                        if len(parts) == 2:
+                for line in result.stdout.splitlines():
+                    if "wine" in line.lower() or "wineserver" in line:
+                        parts = line.split(None, 10)
+                        if len(parts) >= 11:
                             processes.append({
-                                "pid": parts[0],
-                                "command": parts[1]
+                                "pid": parts[1],
+                                "command": parts[10]
                             })
-        except Exception:
+                        
+        except (subprocess.TimeoutExpired, Exception):
             pass
         
         return processes
     
     def kill_process(self, pid: str) -> Tuple[bool, str]:
-        """
-        Kill a specific Wine process.
-        
-        Args:
-            pid: Process ID to kill
-            
-        Returns:
-            Tuple of (success, message)
-        """
         try:
-            subprocess.run(["kill", pid], check=True)
+            subprocess.run(
+                ["kill", pid],
+                capture_output=True,
+                timeout=5
+            )
             return True, f"Process {pid} killed"
-        except subprocess.CalledProcessError:
-            return False, f"Failed to kill process {pid}"
+        except Exception as e:
+            return False, f"Failed to kill process: {e}"
     
     def kill_all_wine(self) -> Tuple[bool, str]:
-        """
-        Kill all Wine processes.
-        
-        Returns:
-            Tuple of (success, message)
-        """
         try:
-            subprocess.run(["pkill", "wine"], check=False)
-            subprocess.run(["pkill", "wineserver"], check=False)
+            subprocess.run(
+                ["killall", "-9", "wine", "wineserver"],
+                capture_output=True,
+                timeout=5
+            )
             return True, "All Wine processes killed"
         except Exception as e:
-            return False, f"Error killing processes: {str(e)}"
+            return False, f"Failed to kill processes: {e}"
+    
+    def get_prefix_programs(self, prefix_name: str) -> List[Path]:
+        if prefix_name not in self.prefixes:
+            return []
+        
+        prefix_path = self.prefixes[prefix_name]
+        programs_dir = prefix_path / "drive_c" / "Program Files"
+        
+        executables = []
+        if programs_dir.exists():
+            for exe in programs_dir.rglob("*.exe"):
+                executables.append(exe)
+        
+        return executables
