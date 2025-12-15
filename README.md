@@ -15,20 +15,58 @@ Winvora provides lightweight execution and unified environment management for Wi
 - **Open source**: MIT licensed with original code only
 - **Easy to use**: Simple API for managing Wine prefixes and running applications
 
+## ✨ Key Features
+
+### Core Functionality
+- 🍷 **Wine Prefix Management** - Create, delete, and manage isolated Windows environments
+- 📦 **Application Installation** - Easy installation and execution of Windows programs
+- ⚙️ **Process Management** - Monitor and control running Windows applications
+- 🎨 **Modern GUI** - Beautiful native interfaces for macOS, Linux, and Android
+
+### Advanced Features
+- 🧰 **Winetricks Integration** - One-click installation of Windows components and DLLs
+- 📚 **Application Library** - Organize and quick-launch your Windows applications
+- 📋 **Prefix Templates** - Pre-configured setups for gaming, office, development, and more
+- 🚀 **DXVK Support** - Automatic DirectX to Vulkan translation for better gaming performance
+- 🍾 **Wine Version Management** - Switch between multiple Wine versions (Stable, Staging, Proton)
+- 🎮 **Game Store Integration** - Import games from Steam and Epic Games libraries
+- ☁️ **Cloud Sync** - Synchronize prefixes across devices
+- 📊 **Performance Monitoring** - Track CPU, memory, and GPU usage
+- 🔧 **Advanced Configuration** - Fine-tune Wine settings per prefix
+
 ## Project Structure
 
 ```
 Winvora/
 ├── src/
-│   ├── core/              # Core cross-platform logic
-│   │   ├── wine_manager.py
-│   │   └── config.py
-│   └── platforms/         # Platform-specific implementations
-│       ├── macos/
-│       ├── linux/
-│       └── android/
-├── LICENSE                # MIT License
-├── THIRD_PARTY.md        # Third-party dependencies
+│   ├── core/                      # Core cross-platform logic
+│   │   ├── wine_manager.py        # Wine prefix management
+│   │   ├── config.py              # Configuration system
+│   │   ├── winetricks.py          # Winetricks integration
+│   │   ├── dxvk.py                # DXVK/VKD3D manager
+│   │   ├── prefix_templates.py    # Template system
+│   │   ├── wine_versions.py       # Version management
+│   │   ├── game_stores.py         # Steam/Epic integration
+│   │   ├── app_library.py         # Application library
+│   │   ├── cloud_sync.py          # Cloud synchronization
+│   │   ├── shortcuts.py           # Desktop shortcuts
+│   │   ├── advanced_config.py     # Advanced Wine config
+│   │   ├── performance.py         # Performance monitoring
+│   │   ├── progress.py            # Progress tracking
+│   │   └── logger.py              # Logging system
+│   ├── platforms/                 # Platform-specific implementations
+│   │   ├── macos/
+│   │   ├── linux/
+│   │   └── android/
+│   ├── apps/                      # Application interfaces
+│   │   ├── macos/main.py          # macOS GUI (PyQt6)
+│   │   ├── linux/main.py          # Linux GUI (PyQt6)
+│   │   └── android/main.py        # Android GUI (Kivy)
+│   └── cli/main.py               # Command-line interface
+├── LICENSE                        # MIT License
+├── THIRD_PARTY.md                # Third-party dependencies
+├── IMPROVEMENTS.md               # Feature roadmap
+├── IMPLEMENTATION_SUMMARY.md     # Implementation details
 └── README.md
 ```
 
@@ -86,13 +124,53 @@ All applications provide:
 - ✅ **Process Monitoring**: View and kill Wine processes
 - ✅ **System Checks**: Verify Wine installation and platform info
 
-## Advanced Features
+## CLI Commands
 
-New in this release:
-- 🎯 **Winetricks Integration**: Automatic DLL and font installation
-- 🔗 **Desktop Shortcuts**: Native shortcuts for Linux and macOS
-- 📚 **Application Library**: Organize apps with categories and search
-- ☁️ **Cloud Sync**: Backup and sync prefixes via Dropbox, Drive, OneDrive
+```bash
+# Prefix Management
+winvora prefix create my-app --windows-version win10
+winvora prefix list
+winvora prefix delete my-app
+
+# Application Management
+winvora app install my-app /path/to/installer.exe
+winvora app run my-app /path/to/program.exe
+
+# Templates (NEW!)
+winvora template list
+winvora template apply gaming my-game-prefix
+
+# DXVK Integration (NEW!)
+winvora dxvk install my-game-prefix
+winvora dxvk status my-game-prefix
+
+# Wine Versions (NEW!)
+winvora wine-version list
+winvora wine-version download stable-8.0
+winvora wine-version switch my-game stable-8.0
+
+# Game Store Integration (NEW!)
+winvora game-store scan-steam
+winvora game-store import steam
+winvora game-store install-steam my-prefix
+
+# Winetricks
+winvora winetricks install my-app d3dx9
+winvora winetricks list
+
+# Library Management
+winvora library add "My App" my-app /path/to/app.exe --category Games
+winvora library list
+
+# Cloud Sync
+winvora cloud upload my-app
+winvora cloud download my-app
+winvora cloud list
+
+# Process Management
+winvora process list
+winvora process kill <pid>
+```
 - ⚙️ **Advanced Configuration**: Fine-tune Wine settings and optimizations
 - 📊 **Performance Monitoring**: Track CPU and memory usage
 - 📝 **Logging System**: Comprehensive logging for debugging
