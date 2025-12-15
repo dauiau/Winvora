@@ -1,0 +1,240 @@
+name: Build Releases
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 pyinstaller
+          
+      - name: Build Linux executable
+        run: |
+          pyinstaller --onefile --windowed --name winvora-linux \
+            --add-data "src:src" \
+            --hidden-import PyQt6 \
+            --icon assets/icon.png \
+            winvora.py || pyinstaller --onefile --name winvora-linux \
+            --add-data "src:src" \
+            --hidden-import PyQt6 \
+            winvora.py
+      
+      - name: Create AppImage
+        run: |
+          # Download AppImage tools
+          wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy executable
+          cp dist/winvora-linux AppDir/usr/bin/winvora
+          
+          # Create desktop file
+          cat > AppDir/winvora.desktop << EOF
+          [Desktop Entry]
+          Name=Winvora
+          Exec=winvora
+          Icon=winvora
+          Type=Application
+          Categories=Utility;
+          Comment=Wine compatibility layer manager
+          EOF
+          
+          # Copy desktop file
+          cp AppDir/winvora.desktop AppDir/usr/share/applications/
+          
+          # Create icon (placeholder if not exists)
+          touch AppDir/usr/share/icons/hicolor/256x256/apps/winvora.png
+          
+          # Build AppImage
+          ./appimagetool-x86_64.AppImage AppDir winvora-linux-x86_64.AppImage || true
+      
+      - name: Create DEB package
+        run: |
+          mkdir -p winvora-deb/DEBIAN
+          mkdir -p winvora-deb/usr/bin
+          mkdir -p winvora-deb/usr/share/applications
+          mkdir -p winvora-deb/usr/share/doc/winvora
+          
+          # Copy executable
+          cp dist/winvora-linux winvora-deb/usr/bin/winvora
+          chmod +x winvora-deb/usr/bin/winvora
+          
+          # Create control file
+          cat > winvora-deb/DEBIAN/control << EOF
+          Package: winvora
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Winvora Team
+          Description: Wine compatibility layer manager
+           A cross-platform application for running Windows software using Wine.
+          EOF
+          
+          # Create desktop file
+          cat > winvora-deb/usr/share/applications/winvora.desktop << EOF
+          [Desktop Entry]
+          Name=Winvora
+          Exec=/usr/bin/winvora
+          Icon=winvora
+          Type=Application
+          Categories=Utility;
+          Comment=Wine compatibility layer manager
+          EOF
+          
+          # Copy documentation
+          cp README.md winvora-deb/usr/share/doc/winvora/
+          cp LICENSE winvora-deb/usr/share/doc/winvora/
+          
+          # Build DEB
+          dpkg-deb --build winvora-deb winvora_1.0.0_amd64.deb
+      
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-builds
+          path: |
+            dist/winvora-linux
+            winvora-linux-x86_64.AppImage
+            winvora_1.0.0_amd64.deb
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 pyinstaller py2app
+      
+      - name: Build macOS app bundle
+        run: |
+          # Build with PyInstaller
+          pyinstaller --onefile --windowed --name Winvora \
+            --add-data "src:src" \
+            --hidden-import PyQt6 \
+            --icon assets/icon.icns \
+            --osx-bundle-identifier com.winvora.app \
+            winvora.py || pyinstaller --onefile --windowed --name Winvora \
+            --add-data "src:src" \
+            --hidden-import PyQt6 \
+            --osx-bundle-identifier com.winvora.app \
+            winvora.py
+      
+      - name: Create DMG
+        run: |
+          # Create DMG structure
+          mkdir -p dmg_temp
+          cp -r "dist/Winvora.app" dmg_temp/ || cp -r dist/Winvora dmg_temp/Winvora.app
+          
+          # Create Applications symlink
+          ln -s /Applications dmg_temp/Applications
+          
+          # Create DMG
+          hdiutil create -volname "Winvora" -srcfolder dmg_temp -ov -format UDZO Winvora.dmg
+      
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-builds
+          path: |
+            Winvora.dmg
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Install Android SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y android-sdk
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install kivy buildozer cython
+      
+      - name: Build Android APK
+        run: |
+          cd src/apps/android
+          
+          # Initialize buildozer if needed
+          buildozer android debug || true
+          
+          # The APK will be in .buildozer/android/platform/build-*/outputs/apk/debug/
+      
+      - name: Find and upload APK
+        run: |
+          # Find the generated APK
+          find . -name "*.apk" -type f -exec cp {} winvora-android.apk \; || true
+      
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-builds
+          path: |
+            winvora-android.apk
+            src/apps/android/.buildozer/
+
+  create-release:
+    needs: [build-linux, build-macos, build-android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            linux-builds/*
+            macos-builds/*
+            android-builds/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
