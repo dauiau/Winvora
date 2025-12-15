@@ -999,7 +999,7 @@ class WinvoraMainWindow(QMainWindow):
             self.statusBar().showMessage("Ready")
     
     def _refresh_all(self):
-        \"\"\"Refresh all lists.\"\"\"
+        """Refresh all lists."""
         self.statusBar().showMessage("Refreshing...")
         QApplication.processEvents()
         self._refresh_prefixes()
