@@ -25,7 +25,7 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
-            VERSION="dev-$(date +%Y%m%d)"
+            VERSION="0.0.dev$(date +%Y%m%d)"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
@@ -145,7 +145,7 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
-            VERSION="dev-$(date +%Y%m%d)"
+            VERSION="0.0.dev$(date +%Y%m%d)"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
@@ -202,7 +202,7 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
-            VERSION="dev-$(date +%Y%m%d)"
+            VERSION="0.0.dev$(date +%Y%m%d)"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
@@ -267,8 +267,8 @@ jobs:
           export ANDROIDAPI=31
           export ANDROIDNDKVER=r25b
           
-          # Build release APK (faster than debug)
-          buildozer android release || buildozer android debug
+          # Build release APK with reduced verbosity (filter DEBUG and verbose INFO)
+          buildozer -v android release 2>&1 | grep -Ev "^\[DEBUG\]|^\[INFO\]:   \t" || buildozer -v android debug 2>&1 | grep -Ev "^\[DEBUG\]|^\[INFO\]:   \t"
       
       - name: Rename APK
         run: |
