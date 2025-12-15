@@ -244,12 +244,19 @@ jobs:
             "build-tools;30.0.3" \
             "ndk;25.2.9519653"
       
+      - name: Cache Buildozer
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.buildozer
+            src/apps/android/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('src/apps/android/buildozer.spec') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-
+      
       - name: Build Android APK
         run: |
           cd src/apps/android
-          
-          # Clean previous builds
-          rm -rf .buildozer bin
           
           # Update buildozer.spec version
           sed -i "s/^version = .*/version = ${{ steps.version.outputs.VERSION }}/" buildozer.spec
@@ -260,8 +267,8 @@ jobs:
           export ANDROIDAPI=31
           export ANDROIDNDKVER=r25b
           
-          # Build APK
-          buildozer -v android debug
+          # Build release APK (faster than debug)
+          buildozer android release || buildozer android debug
       
       - name: Rename APK
         run: |

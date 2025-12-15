@@ -36,6 +36,9 @@ android.minapi = 21
 # Android NDK version
 android.ndk = 25b
 
+# Build for single architecture only (arm64-v8a covers most modern devices)
+android.archs = arm64-v8a
+
 # Accept SDK license automatically
 android.accept_sdk_license = True
 
