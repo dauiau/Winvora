@@ -36,6 +36,12 @@ android.minapi = 21
 # Android NDK version
 android.ndk = 25b
 
+# Accept SDK license automatically
+android.accept_sdk_license = True
+
+# Skip SDK update check
+android.skip_update = False
+
 # Android orientation
 orientation = portrait
 
