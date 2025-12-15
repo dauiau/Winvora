@@ -7,6 +7,25 @@ import json
 import shlex
 
 
+def get_disk_space(path: Path) -> Tuple[int, int]:
+    """Get available and total disk space in bytes."""
+    try:
+        stat = shutil.disk_usage(path)
+        return stat.free, stat.total
+    except Exception:
+        return 0, 0
+
+
+def check_disk_space(path: Path, required_mb: int = 1000) -> Tuple[bool, str]:
+    """Check if enough disk space is available."""
+    free_bytes, total_bytes = get_disk_space(path)
+    free_mb = free_bytes / (1024 * 1024)
+    
+    if free_mb < required_mb:
+        return False, f"Insufficient disk space. Need {required_mb}MB, have {free_mb:.0f}MB"
+    return True, f"{free_mb:.0f}MB available"
+
+
 class WineManager:
     def __init__(self, wine_path: Optional[Path] = None, config=None):
         from core.config import Config
@@ -102,6 +121,13 @@ class WineManager:
         if name in self.prefixes:
             return False, f"Prefix '{name}' already exists"
         
+        # Validate prefix name
+        if not name or not name.strip():
+            return False, "Prefix name cannot be empty"
+        
+        if any(c in name for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']):
+            return False, "Prefix name contains invalid characters"
+        
         from platforms import get_platform
         platform = get_platform()
         prefix_dir = platform.get_default_prefix_location()
@@ -109,6 +135,11 @@ class WineManager:
         
         if prefix_path.exists():
             return False, f"Directory already exists at {prefix_path}"
+        
+        # Check disk space (need at least 500MB for a basic prefix)
+        has_space, space_msg = check_disk_space(prefix_dir, required_mb=500)
+        if not has_space:
+            return False, space_msg
         
         try:
             prefix_path.mkdir(parents=True, exist_ok=False)

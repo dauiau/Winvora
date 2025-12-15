@@ -66,6 +66,10 @@ class Config:
         self.settings[key] = value
         self.save()
     
+    def get_config_dir(self) -> Path:
+        """Get the configuration directory."""
+        return self.config_path.parent
+    
     def get_prefixes_dir(self) -> Path:
         custom_dir = self.get("prefixes_directory")
         if custom_dir:

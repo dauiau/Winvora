@@ -1,7 +1,9 @@
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 import logging
 import sys
+import shutil
+import zipfile
 from datetime import datetime
 
 
@@ -78,6 +80,58 @@ class WinvoraLogger:
         level = logging.INFO if success else logging.ERROR
         status = "SUCCESS" if success else "FAILED"
         self.logger.log(level, f"Prefix Operation: {operation} | Prefix: {prefix_name} | Status: {status}")
+    
+    def get_log_directory(self) -> Path:
+        """Get the directory where logs are stored."""
+        from core.config import Config
+        config = Config()
+        return config.get_config_dir() / "logs"
+    
+    def get_log_files(self) -> List[Path]:
+        """Get list of all log files."""
+        log_dir = self.get_log_directory()
+        if log_dir.exists():
+            return sorted(log_dir.glob("winvora_*.log"), reverse=True)
+        return []
+    
+    def export_logs(self, output_path: Path) -> bool:
+        """Export all logs to a zip file."""
+        try:
+            log_files = self.get_log_files()
+            if not log_files:
+                return False
+            
+            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for log_file in log_files:
+                    zipf.write(log_file, arcname=log_file.name)
+            
+            return True
+        except Exception as e:
+            self.error(f"Failed to export logs: {e}")
+            return False
+    
+    def clear_old_logs(self, days_to_keep: int = 30) -> int:
+        """Clear logs older than specified days. Returns number of files deleted."""
+        try:
+            from datetime import timedelta
+            cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+            log_files = self.get_log_files()
+            deleted = 0
+            
+            for log_file in log_files:
+                file_date_str = log_file.stem.replace("winvora_", "")
+                try:
+                    file_date = datetime.strptime(file_date_str, "%Y%m%d")
+                    if file_date < cutoff_date:
+                        log_file.unlink()
+                        deleted += 1
+                except ValueError:
+                    continue
+            
+            return deleted
+        except Exception as e:
+            self.error(f"Failed to clear old logs: {e}")
+            return 0
 
 
 def get_logger():

@@ -7,10 +7,10 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QPushButton, QListWidget, QLabel, QTabWidget, QMessageBox,
         QFileDialog, QInputDialog, QTextEdit, QGroupBox, QStatusBar,
-        QListWidgetItem, QSplitter
+        QListWidgetItem, QSplitter, QLineEdit
     )
     from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QFont, QColor, QPalette
+    from PyQt6.QtGui import QFont, QColor, QPalette, QKeySequence, QShortcut
     PYQT_AVAILABLE = True
 except ImportError:
     PYQT_AVAILABLE = False
@@ -23,6 +23,8 @@ from core.dxvk import DXVKManager
 from core.prefix_templates import PrefixTemplateManager
 from core.wine_versions import WineVersionManager
 from core.game_stores import GameStoreIntegration
+from core.notifications import get_notification_manager
+from core.logger import get_logger
 from platforms.macos import MacOSPlatform
 
 
@@ -77,12 +79,15 @@ class WinvoraMainWindow(QMainWindow):
         self.templates = PrefixTemplateManager(self.config)
         self.wine_versions = WineVersionManager(self.config)
         self.game_stores = GameStoreIntegration(self.wine_manager, self.app_library)
+        self.notifications = get_notification_manager()
+        self.logger = get_logger()
         
         self.setWindowTitle("Winvora")
         self.setMinimumSize(1000, 700)
         
         self._apply_modern_style()
         self._init_ui()
+        self._setup_keyboard_shortcuts()
         self._start_auto_refresh()
     
     def _apply_modern_style(self):
@@ -934,6 +939,72 @@ class WinvoraMainWindow(QMainWindow):
         text += f"\nConfig File:\n{self.config.config_path}"
         
         self.system_info.setPlainText(text)
+    
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for common actions."""
+        # Refresh - Command+R
+        refresh_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+        refresh_shortcut.activated.connect(self._refresh_all)
+        
+        # Create Prefix - Command+N
+        create_prefix_shortcut = QShortcut(QKeySequence.StandardKey.New, self)
+        create_prefix_shortcut.activated.connect(self._on_create_prefix)
+        
+        # Quit - Command+Q
+        quit_shortcut = QShortcut(QKeySequence.StandardKey.Quit, self)
+        quit_shortcut.activated.connect(self.close)
+        
+        # Help - Command+?
+        help_shortcut = QShortcut(QKeySequence("Ctrl+?"), self)
+        help_shortcut.activated.connect(self._show_keyboard_shortcuts)
+        
+        # Export Logs - Command+E
+        export_logs_shortcut = QShortcut(QKeySequence("Ctrl+E"), self)
+        export_logs_shortcut.activated.connect(self._export_logs)
+    
+    def _show_keyboard_shortcuts(self):
+        """Show keyboard shortcuts help dialog."""
+        shortcuts_text = \"\"\"
+<h3>Keyboard Shortcuts</h3>
+<table>
+<tr><td><b>⌘+?</b></td><td>Show this help</td></tr>
+<tr><td><b>⌘+R</b></td><td>Refresh all lists</td></tr>
+<tr><td><b>⌘+N</b></td><td>Create new prefix</td></tr>
+<tr><td><b>⌘+E</b></td><td>Export logs</td></tr>
+<tr><td><b>⌘+Q</b></td><td>Quit application</td></tr>
+</table>
+        \"\"\"
+        QMessageBox.information(self, "Keyboard Shortcuts", shortcuts_text)
+    
+    def _export_logs(self):
+        \"\"\"Export logs to a zip file.\"\"\"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Logs", str(Path.home() / "winvora_logs.zip"),
+            "ZIP Files (*.zip)"
+        )
+        
+        if file_path:
+            self.statusBar().showMessage("Exporting logs...")
+            QApplication.processEvents()
+            
+            if self.logger.export_logs(Path(file_path)):
+                QMessageBox.information(
+                    self, "Success", 
+                    f"Logs exported to:\\n{file_path}"
+                )
+                self.notifications.notify_success("Logs Exported", "Logs successfully exported")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to export logs")
+            
+            self.statusBar().showMessage("Ready")
+    
+    def _refresh_all(self):
+        \"\"\"Refresh all lists.\"\"\"
+        self.statusBar().showMessage("Refreshing...")
+        QApplication.processEvents()
+        self._refresh_prefixes()
+        self._refresh_library()
+        self.statusBar().showMessage("Ready")
     
     def _start_auto_refresh(self):
         self._refresh_prefixes()

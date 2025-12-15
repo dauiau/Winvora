@@ -201,6 +201,27 @@ class WinvoraCLI:
         install_steam_parser = store_subparsers.add_parser('install-steam', help='Install Steam to prefix')
         install_steam_parser.add_argument('prefix', help='Prefix name')
         
+        # Logs management
+        logs_parser = subparsers.add_parser('logs', help='Logs management')
+        logs_subparsers = logs_parser.add_subparsers(dest='log_action')
+        
+        export_logs_parser = logs_subparsers.add_parser('export', help='Export logs to zip')
+        export_logs_parser.add_argument('output', help='Output zip file path')
+        
+        logs_subparsers.add_parser('list', help='List log files')
+        
+        clear_logs_parser = logs_subparsers.add_parser('clear', help='Clear old logs')
+        clear_logs_parser.add_argument('--days', type=int, default=30, help='Keep logs from last N days')
+        
+        # Favorites management
+        favorites_parser = subparsers.add_parser('favorites', help='Manage favorite apps')
+        favorites_subparsers = favorites_parser.add_subparsers(dest='fav_action')
+        
+        toggle_fav_parser = favorites_subparsers.add_parser('toggle', help='Toggle favorite status')
+        toggle_fav_parser.add_argument('app_id', help='Application ID')
+        
+        favorites_subparsers.add_parser('list', help='List favorite apps')
+        
         return parser
     
     def run(self, args=None):
@@ -236,6 +257,10 @@ class WinvoraCLI:
             return self._handle_wine_version_command(parsed_args)
         elif parsed_args.command == 'game-store':
             return self._handle_game_store_command(parsed_args)
+        elif parsed_args.command == 'logs':
+            return self._handle_logs_command(parsed_args)
+        elif parsed_args.command == 'favorites':
+            return self._handle_favorites_command(parsed_args)
         
         return 0
     
@@ -741,6 +766,79 @@ class WinvoraCLI:
             )
             print(message)
             return 0 if success else 1
+        
+        return 0
+    
+    def _handle_logs_command(self, args):
+        """Handle logs commands."""
+        if not args.log_action:
+            print("Error: Specify log action (export, list, clear)")
+            return 1
+        
+        if args.log_action == 'export':
+            if not args.output:
+                print("Error: Output file path required")
+                return 1
+            
+            from pathlib import Path
+            output_path = Path(args.output)
+            
+            print(f"Exporting logs to {output_path}...")
+            if self.wine_manager.logger.export_logs(output_path):
+                print(f"✓ Logs exported successfully to {output_path}")
+                return 0
+            else:
+                print("✗ Failed to export logs")
+                return 1
+        
+        elif args.log_action == 'list':
+            log_files = self.wine_manager.logger.get_log_files()
+            if log_files:
+                print(f"Found {len(log_files)} log file(s):")
+                for log_file in log_files:
+                    size_kb = log_file.stat().st_size / 1024
+                    print(f"  - {log_file.name} ({size_kb:.1f} KB)")
+            else:
+                print("No log files found")
+            return 0
+        
+        elif args.log_action == 'clear':
+            days = args.days if hasattr(args, 'days') else 30
+            deleted = self.wine_manager.logger.clear_old_logs(days)
+            print(f"✓ Cleared {deleted} old log file(s) (kept last {days} days)")
+            return 0
+        
+        return 0
+    
+    def _handle_favorites_command(self, args):
+        """Handle favorites commands."""
+        if not args.fav_action:
+            print("Error: Specify favorites action (toggle, list)")
+            return 1
+        
+        if args.fav_action == 'toggle':
+            if not args.app_id:
+                print("Error: Application ID required")
+                return 1
+            
+            if self.app_library.toggle_favorite(args.app_id):
+                app = self.app_library.get_app(args.app_id)
+                status = "added to" if app.get('favorite', False) else "removed from"
+                print(f"✓ Application {status} favorites")
+                return 0
+            else:
+                print("✗ Failed to toggle favorite status")
+                return 1
+        
+        elif args.fav_action == 'list':
+            favorites = self.app_library.get_favorites()
+            if favorites:
+                print(f"Favorite applications ({len(favorites)}):")
+                for app in favorites:
+                    print(f"  ⭐ {app['name']} - {app['id']} ({app['category']})")
+            else:
+                print("No favorite applications")
+            return 0
         
         return 0
 

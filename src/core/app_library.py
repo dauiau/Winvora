@@ -50,6 +50,8 @@ class AppLibrary:
             "added_timestamp": int(time.time()),
             "last_run": None,
             "run_count": 0,
+            "favorite": False,
+            "notes": "",
         }
         
         return self.save()
@@ -97,3 +99,44 @@ class AppLibrary:
                 results.append(app_data)
         
         return results
+    
+    def toggle_favorite(self, app_id: str) -> bool:
+        """Toggle favorite status for an app."""
+        if app_id in self.apps:
+            self.apps[app_id]["favorite"] = not self.apps[app_id].get("favorite", False)
+            return self.save()
+        return False
+    
+    def set_notes(self, app_id: str, notes: str) -> bool:
+        """Set notes for an app."""
+        if app_id in self.apps:
+            self.apps[app_id]["notes"] = notes
+            return self.save()
+        return False
+    
+    def get_favorites(self) -> List[Dict]:
+        """Get all favorite apps."""
+        favorites = []
+        for app_id, app_data in self.apps.items():
+            if app_data.get("favorite", False):
+                app_data["id"] = app_id
+                favorites.append(app_data)
+        return sorted(favorites, key=lambda x: x.get("name", "").lower())
+    
+    def get_recent_apps(self, limit: int = 10) -> List[Dict]:
+        """Get recently used apps."""
+        recent = []
+        for app_id, app_data in self.apps.items():
+            if app_data.get("last_run"):
+                app_data["id"] = app_id
+                recent.append(app_data)
+        return sorted(recent, key=lambda x: x.get("last_run", 0), reverse=True)[:limit]
+    
+    def get_most_used_apps(self, limit: int = 10) -> List[Dict]:
+        """Get most frequently used apps."""
+        most_used = []
+        for app_id, app_data in self.apps.items():
+            if app_data.get("run_count", 0) > 0:
+                app_data["id"] = app_id
+                most_used.append(app_data)
+        return sorted(most_used, key=lambda x: x.get("run_count", 0), reverse=True)[:limit]

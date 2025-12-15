@@ -6,10 +6,10 @@ try:
     from PyQt6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QPushButton, QListWidget, QLabel, QTabWidget, QMessageBox,
-        QFileDialog, QInputDialog, QTextEdit, QGroupBox
+        QFileDialog, QInputDialog, QTextEdit, QGroupBox, QLineEdit
     )
     from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QFont
+    from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QAction
     PYQT_AVAILABLE = True
 except ImportError:
     PYQT_AVAILABLE = False
@@ -22,6 +22,8 @@ from core.dxvk import DXVKManager
 from core.prefix_templates import PrefixTemplateManager
 from core.wine_versions import WineVersionManager
 from core.game_stores import GameStoreIntegration
+from core.notifications import get_notification_manager
+from core.logger import get_logger
 from platforms.linux import LinuxPlatform
 
 
@@ -68,12 +70,15 @@ class WinvoraMainWindow(QMainWindow):
         self.templates = PrefixTemplateManager(self.config)
         self.wine_versions = WineVersionManager(self.config)
         self.game_stores = GameStoreIntegration(self.wine_manager, self.app_library)
+        self.notifications = get_notification_manager()
+        self.logger = get_logger()
         
         self.setWindowTitle("Winvora Wine Manager")
         self.setMinimumSize(1000, 700)
         
         self._apply_style()
         self._init_ui()
+        self._setup_keyboard_shortcuts()
         self._start_auto_refresh()
     
     def _apply_style(self):
@@ -157,6 +162,7 @@ class WinvoraMainWindow(QMainWindow):
         tabs.setDocumentMode(True)
         main_layout.addWidget(tabs)
         
+        self.tab_widget = tabs
         tabs.addTab(self._create_prefixes_tab(), "🍷 Wine Prefixes")
         tabs.addTab(self._create_applications_tab(), "📦 Applications")
         tabs.addTab(self._create_library_tab(), "📚 Library")
@@ -167,7 +173,7 @@ class WinvoraMainWindow(QMainWindow):
         tabs.addTab(self._create_processes_tab(), "⚙️ Processes")
         tabs.addTab(self._create_settings_tab(), "🔧 Settings")
         
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage("Ready | Press F1 for keyboard shortcuts")
     
     def _create_prefixes_tab(self) -> QWidget:
         widget = QWidget()
@@ -180,6 +186,16 @@ class WinvoraMainWindow(QMainWindow):
         
         list_group = QGroupBox("Available Prefixes")
         list_layout = QVBoxLayout(list_group)
+        
+        # Add search bar
+        search_layout = QHBoxLayout()
+        search_label = QLabel("🔍 Search:")
+        self.prefix_search = QLineEdit()
+        self.prefix_search.setPlaceholderText("Filter prefixes...")
+        self.prefix_search.textChanged.connect(self._filter_prefix_list)
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.prefix_search)
+        list_layout.addLayout(search_layout)
         
         self.prefix_list = QListWidget()
         self.prefix_list.setAlternatingRowColors(True)
@@ -311,9 +327,11 @@ class WinvoraMainWindow(QMainWindow):
             success, message = self.wine_manager.create_prefix(name)
             if success:
                 QMessageBox.information(self, "Success", message)
+                self.notifications.notify_success("Prefix Created", f"Prefix '{name}' created successfully")
                 self._refresh_prefixes()
             else:
                 QMessageBox.warning(self, "Error", message)
+                self.notifications.notify_error("Prefix Creation Failed", message)
             self.statusBar().showMessage("Ready")
     
     def _on_delete_prefix(self):
@@ -490,13 +508,38 @@ class WinvoraMainWindow(QMainWindow):
         list_group = QGroupBox("Application Library")
         list_layout = QVBoxLayout(list_group)
         
+        # Add search and filter options
+        filter_layout = QHBoxLayout()
+        search_label = QLabel("🔍 Search:")
+        self.library_search = QLineEdit()
+        self.library_search.setPlaceholderText("Search applications...")
+        self.library_search.textChanged.connect(self._filter_library)
+        filter_layout.addWidget(search_label)
+        filter_layout.addWidget(self.library_search)
+        
+        favorites_btn = StyledButton("⭐ Favorites")
+        favorites_btn.clicked.connect(self._show_favorites)
+        filter_layout.addWidget(favorites_btn)
+        
+        recent_btn = StyledButton("🕐 Recent")
+        recent_btn.clicked.connect(self._show_recent)
+        filter_layout.addWidget(recent_btn)
+        
+        list_layout.addLayout(filter_layout)
+        
         self.library_list = QListWidget()
+        self.library_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.library_list.customContextMenuRequested.connect(self._show_library_context_menu)
         list_layout.addWidget(self.library_list)
         
         button_layout = QHBoxLayout()
         add_button = StyledButton("➕ Add Application", primary=True)
         add_button.clicked.connect(self._add_to_library)
         button_layout.addWidget(add_button)
+        
+        favorite_button = StyledButton("⭐ Toggle Favorite")
+        favorite_button.clicked.connect(self._toggle_favorite)
+        button_layout.addWidget(favorite_button)
         
         remove_button = StyledButton("🗑️ Remove")
         remove_button.clicked.connect(self._remove_from_library)
@@ -724,7 +767,130 @@ class WinvoraMainWindow(QMainWindow):
         self.library_list.clear()
         apps = self.app_library.list_apps()
         for app in apps:
-            self.library_list.addItem(f"{app['id']} - {app['name']} ({app['category']})")
+            star = "⭐ " if app.get('favorite', False) else ""
+            last_run = ""
+            if app.get('last_run'):
+                from datetime import datetime
+                last_time = datetime.fromtimestamp(app['last_run'])
+                last_run = f" | Last: {last_time.strftime('%m/%d %H:%M')}"
+            self.library_list.addItem(f"{star}{app['name']} ({app['category']}){last_run}")
+    
+    def _filter_library(self, text: str):
+        """Filter library list based on search text."""
+        for i in range(self.library_list.count()):
+            item = self.library_list.item(i)
+            if text.lower() in item.text().lower():
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
+    
+    def _show_favorites(self):
+        """Show only favorite applications."""
+        self.library_list.clear()
+        apps = self.app_library.get_favorites()
+        if not apps:
+            QMessageBox.information(self, "No Favorites", "You haven't marked any applications as favorites yet.")
+            return
+        for app in apps:
+            last_run = ""
+            if app.get('last_run'):
+                from datetime import datetime
+                last_time = datetime.fromtimestamp(app['last_run'])
+                last_run = f" | Last: {last_time.strftime('%m/%d %H:%M')}"
+            self.library_list.addItem(f"⭐ {app['name']} ({app['category']}){last_run}")
+    
+    def _show_recent(self):
+        """Show recently used applications."""
+        self.library_list.clear()
+        apps = self.app_library.get_recent_apps(limit=20)
+        if not apps:
+            QMessageBox.information(self, "No Recent Apps", "You haven't run any applications yet.")
+            return
+        for app in apps:
+            star = "⭐ " if app.get('favorite', False) else ""
+            from datetime import datetime
+            last_time = datetime.fromtimestamp(app['last_run'])
+            last_run = f" | Last: {last_time.strftime('%m/%d %H:%M')}"
+            self.library_list.addItem(f"{star}{app['name']} ({app['category']}){last_run}")
+    
+    def _toggle_favorite(self):
+        """Toggle favorite status for selected app."""
+        current = self.library_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Warning", "Please select an application")
+            return
+        
+        # Extract app name from display text
+        text = current.text().replace("⭐ ", "")
+        app_name = text.split(" (")[0]
+        
+        # Find the app ID
+        apps = self.app_library.list_apps()
+        app_id = None
+        for app in apps:
+            if app['name'] == app_name:
+                app_id = app['id']
+                break
+        
+        if app_id:
+            if self.app_library.toggle_favorite(app_id):
+                self._refresh_library()
+                self.notifications.notify_info("Favorite Updated", f"Toggled favorite status for {app_name}")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to update favorite status")
+        else:
+            QMessageBox.warning(self, "Error", "Could not find application")
+    
+    def _show_library_context_menu(self, position):
+        """Show context menu for library items."""
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu()
+        
+        toggle_fav_action = menu.addAction("⭐ Toggle Favorite")
+        add_note_action = menu.addAction("📝 Add Note")
+        remove_action = menu.addAction("🗑️ Remove")
+        
+        action = menu.exec(self.library_list.mapToGlobal(position))
+        
+        if action == toggle_fav_action:
+            self._toggle_favorite()
+        elif action == add_note_action:
+            self._add_app_note()
+        elif action == remove_action:
+            self._remove_from_library()
+    
+    def _add_app_note(self):
+        """Add or edit notes for an app."""
+        current = self.library_list.currentItem()
+        if not current:
+            return
+        
+        # Extract app name
+        text = current.text().replace("⭐ ", "")
+        app_name = text.split(" (")[0]
+        
+        # Find app
+        apps = self.app_library.list_apps()
+        app_id = None
+        current_notes = ""
+        for app in apps:
+            if app['name'] == app_name:
+                app_id = app['id']
+                current_notes = app.get('notes', '')
+                break
+        
+        if not app_id:
+            return
+        
+        notes, ok = QInputDialog.getMultiLineText(
+            self, "Add Notes", 
+            f"Notes for {app_name}:",
+            current_notes
+        )
+        
+        if ok:
+            if self.app_library.set_notes(app_id, notes):
+                self.notifications.notify_success("Notes Saved", f"Notes updated for {app_name}")
     
     def _apply_template(self):
         selected = self.template_list.currentItem()
@@ -915,6 +1081,82 @@ class WinvoraMainWindow(QMainWindow):
         
         self.system_info.setPlainText(text)
     
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for common actions."""
+        # Refresh - F5
+        refresh_shortcut = QShortcut(QKeySequence(Qt.Key.Key_F5), self)
+        refresh_shortcut.activated.connect(self._refresh_all)
+        
+        # Create Prefix - Ctrl+N
+        create_prefix_shortcut = QShortcut(QKeySequence.StandardKey.New, self)
+        create_prefix_shortcut.activated.connect(self._on_create_prefix)
+        
+        # Quit - Ctrl+Q
+        quit_shortcut = QShortcut(QKeySequence.StandardKey.Quit, self)
+        quit_shortcut.activated.connect(self.close)
+        
+        # Help - F1
+        help_shortcut = QShortcut(QKeySequence(Qt.Key.Key_F1), self)
+        help_shortcut.activated.connect(self._show_keyboard_shortcuts)
+        
+        # Export Logs - Ctrl+E
+        export_logs_shortcut = QShortcut(QKeySequence("Ctrl+E"), self)
+        export_logs_shortcut.activated.connect(self._export_logs)
+    
+    def _show_keyboard_shortcuts(self):
+        """Show keyboard shortcuts help dialog."""
+        shortcuts_text = """
+<h3>Keyboard Shortcuts</h3>
+<table>
+<tr><td><b>F1</b></td><td>Show this help</td></tr>
+<tr><td><b>F5</b></td><td>Refresh all lists</td></tr>
+<tr><td><b>Ctrl+N</b></td><td>Create new prefix</td></tr>
+<tr><td><b>Ctrl+E</b></td><td>Export logs</td></tr>
+<tr><td><b>Ctrl+Q</b></td><td>Quit application</td></tr>
+<tr><td><b>Ctrl+F</b></td><td>Focus search (when available)</td></tr>
+</table>
+        """
+        QMessageBox.information(self, "Keyboard Shortcuts", shortcuts_text)
+    
+    def _filter_prefix_list(self, text: str):
+        """Filter prefix list based on search text."""
+        for i in range(self.prefix_list.count()):
+            item = self.prefix_list.item(i)
+            if text.lower() in item.text().lower():
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
+    
+    def _export_logs(self):
+        """Export logs to a zip file."""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Logs", str(Path.home() / "winvora_logs.zip"),
+            "ZIP Files (*.zip)"
+        )
+        
+        if file_path:
+            self.statusBar().showMessage("Exporting logs...")
+            QApplication.processEvents()
+            
+            if self.logger.export_logs(Path(file_path)):
+                QMessageBox.information(
+                    self, "Success", 
+                    f"Logs exported to:\n{file_path}"
+                )
+                self.notifications.notify_success("Logs Exported", "Logs successfully exported")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to export logs")
+            
+            self.statusBar().showMessage("Ready")
+    
+    def _refresh_all(self):
+        """Refresh all lists."""
+        self.statusBar().showMessage("Refreshing...")
+        QApplication.processEvents()
+        self._refresh_prefixes()
+        self._refresh_library()
+        self.statusBar().showMessage("Ready")
+    
     def _start_auto_refresh(self):
         self._refresh_prefixes()
         
@@ -924,8 +1166,8 @@ class WinvoraMainWindow(QMainWindow):
     
     def _auto_refresh(self):
         if self.isVisible():
-            current_tab = self.findChild(QTabWidget).currentIndex()
-            if current_tab == 2:
+            current_tab = self.tab_widget.currentIndex()
+            if current_tab == 7:  # Processes tab
                 self._refresh_processes()
 
 
