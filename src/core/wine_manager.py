@@ -10,9 +10,11 @@ import shlex
 class WineManager:
     def __init__(self, wine_path: Optional[Path] = None, config=None):
         from core.config import Config
+        from core.logger import get_logger
         self.config = config or Config()
         self.wine_path = wine_path or self._find_wine()
         self.prefixes: Dict[str, Path] = {}
+        self.logger = get_logger()
         self._load_prefixes()
     
     def _find_wine(self) -> Optional[Path]:
