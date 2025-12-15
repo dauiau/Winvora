@@ -86,6 +86,19 @@ All applications provide:
 - ✅ **Process Monitoring**: View and kill Wine processes
 - ✅ **System Checks**: Verify Wine installation and platform info
 
+## Advanced Features
+
+New in this release:
+- 🎯 **Winetricks Integration**: Automatic DLL and font installation
+- 🔗 **Desktop Shortcuts**: Native shortcuts for Linux and macOS
+- 📚 **Application Library**: Organize apps with categories and search
+- ☁️ **Cloud Sync**: Backup and sync prefixes via Dropbox, Drive, OneDrive
+- ⚙️ **Advanced Configuration**: Fine-tune Wine settings and optimizations
+- 📊 **Performance Monitoring**: Track CPU and memory usage
+- 📝 **Logging System**: Comprehensive logging for debugging
+
+See [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) for detailed documentation.
+
 ## Current Status
 
 ✅ **Fully Implemented** - Winvora is production-ready with 2,356+ lines of working code. All three application interfaces (CLI, Desktop GUI, Mobile) are fully functional with complete Wine integration.
