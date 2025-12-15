@@ -218,11 +218,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Install Android SDK components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;25.2.9519653"
+      
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev \
-            git zip unzip openjdk-17-jdk wget autoconf libtool pkg-config zlib1g-dev \
+            git zip unzip wget autoconf libtool pkg-config zlib1g-dev \
             libncurses5-dev libncursesw5-dev cmake
           
           python -m pip install --upgrade pip
@@ -237,6 +244,10 @@ jobs:
           
           # Update buildozer.spec version
           sed -i "s/^version = .*/version = ${{ steps.version.outputs.VERSION }}/" buildozer.spec
+          
+          # Set Android SDK environment variables
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
           
           # Build APK
           buildozer -v android debug
