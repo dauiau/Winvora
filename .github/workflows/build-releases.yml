@@ -272,13 +272,27 @@ jobs:
       
       - name: Rename APK
         run: |
-          # Find and rename the APK
-          APK_PATH=$(find src/apps/android/bin -name "*.apk" -type f | head -n 1)
-          if [ -f "$APK_PATH" ]; then
-            cp "$APK_PATH" winvora-${{ steps.version.outputs.VERSION }}-android.apk
-            echo "APK created successfully"
+          cd src/apps/android
+          
+          # Find APK in buildozer output directories
+          # Buildozer creates APKs in .buildozer/android/platform/build-*/bin/
+          APK_PATH=$(find .buildozer/android/platform/build*/bin -name "*.apk" -type f 2>/dev/null | head -n 1)
+          
+          # Also check in bin directory as fallback
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find bin -name "*.apk" -type f 2>/dev/null | head -n 1)
+          fi
+          
+          if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" ../../../winvora-${{ steps.version.outputs.VERSION }}-android.apk
+            echo "APK created successfully at: $APK_PATH"
+            ls -lh ../../../winvora-*.apk
           else
-            echo "No APK found"
+            echo "No APK found. Searching all directories:"
+            find . -name "*.apk" -type f 2>/dev/null || echo "No APK files found anywhere"
+            echo ""
+            echo "Build directory structure:"
+            ls -la .buildozer/android/platform/ 2>/dev/null || echo "No buildozer directory found"
             exit 1
           fi
       
