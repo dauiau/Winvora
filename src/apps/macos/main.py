@@ -964,7 +964,7 @@ class WinvoraMainWindow(QMainWindow):
     
     def _show_keyboard_shortcuts(self):
         """Show keyboard shortcuts help dialog."""
-        shortcuts_text = \"\"\"
+        shortcuts_text = """
 <h3>Keyboard Shortcuts</h3>
 <table>
 <tr><td><b>⌘+?</b></td><td>Show this help</td></tr>
@@ -973,11 +973,11 @@ class WinvoraMainWindow(QMainWindow):
 <tr><td><b>⌘+E</b></td><td>Export logs</td></tr>
 <tr><td><b>⌘+Q</b></td><td>Quit application</td></tr>
 </table>
-        \"\"\"
+        """
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts_text)
     
     def _export_logs(self):
-        \"\"\"Export logs to a zip file.\"\"\"
+        """Export logs to a zip file."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Export Logs", str(Path.home() / "winvora_logs.zip"),
             "ZIP Files (*.zip)"
