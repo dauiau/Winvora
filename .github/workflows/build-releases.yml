@@ -19,6 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Get version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="dev-$(date +%Y%m%d)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -31,14 +42,13 @@ jobs:
           
       - name: Build Linux executable
         run: |
-          pyinstaller --onefile --windowed --name winvora-linux \
-            --add-data "src:src" \
-            --hidden-import PyQt6 \
-            --icon assets/icon.png \
-            winvora.py || pyinstaller --onefile --name winvora-linux \
+          pyinstaller --onefile --windowed --name winvora \
             --add-data "src:src" \
             --hidden-import PyQt6 \
             winvora.py
+          
+          # Rename to versioned filename
+          mv dist/winvora dist/winvora-${{ steps.version.outputs.VERSION }}-linux-x86_64
       
       - name: Create AppImage
         run: |
@@ -52,7 +62,7 @@ jobs:
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           
           # Copy executable
-          cp dist/winvora-linux AppDir/usr/bin/winvora
+          cp dist/winvora-${{ steps.version.outputs.VERSION }}-linux-x86_64 AppDir/usr/bin/winvora
           
           # Create desktop file
           cat > AppDir/winvora.desktop << EOF
@@ -72,7 +82,7 @@ jobs:
           touch AppDir/usr/share/icons/hicolor/256x256/apps/winvora.png
           
           # Build AppImage
-          ./appimagetool-x86_64.AppImage AppDir winvora-linux-x86_64.AppImage || true
+          ./appimagetool-x86_64.AppImage AppDir winvora-${{ steps.version.outputs.VERSION }}-linux-x86_64.AppImage || true
       
       - name: Create DEB package
         run: |
@@ -82,13 +92,13 @@ jobs:
           mkdir -p winvora-deb/usr/share/doc/winvora
           
           # Copy executable
-          cp dist/winvora-linux winvora-deb/usr/bin/winvora
+          cp dist/winvora-${{ steps.version.outputs.VERSION }}-linux-x86_64 winvora-deb/usr/bin/winvora
           chmod +x winvora-deb/usr/bin/winvora
           
           # Create control file
           cat > winvora-deb/DEBIAN/control << EOF
           Package: winvora
-          Version: 1.0.0
+          Version: ${{ steps.version.outputs.VERSION }}
           Section: utils
           Priority: optional
           Architecture: amd64
@@ -113,21 +123,32 @@ jobs:
           cp LICENSE winvora-deb/usr/share/doc/winvora/
           
           # Build DEB
-          dpkg-deb --build winvora-deb winvora_1.0.0_amd64.deb
+          dpkg-deb --build winvora-deb winvora-${{ steps.version.outputs.VERSION }}-linux-amd64.deb
       
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-builds
           path: |
-            dist/winvora-linux
-            winvora-linux-x86_64.AppImage
-            winvora_1.0.0_amd64.deb
+            dist/winvora-*-linux-x86_64
+            winvora-*-linux-x86_64.AppImage
+            winvora-*-linux-amd64.deb
 
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="dev-$(date +%Y%m%d)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -161,24 +182,35 @@ jobs:
           ln -s /Applications dmg_temp/Applications
           
           # Create DMG
-          hdiutil create -volname "Winvora" -srcfolder dmg_temp -ov -format UDZO Winvora.dmg
+          hdiutil create -volname "Winvora" -srcfolder dmg_temp -ov -format UDZO winvora-${{ steps.version.outputs.VERSION }}-macos.dmg
       
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-builds
           path: |
-            Winvora.dmg
+            winvora-*-macos.dmg
 
   build-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
+      - name: Get version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="dev-$(date +%Y%m%d)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
       
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -186,38 +218,47 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       
-      - name: Install Android SDK
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y android-sdk
-      
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev \
+            git zip unzip openjdk-17-jdk wget autoconf libtool pkg-config zlib1g-dev \
+            libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+          
           python -m pip install --upgrade pip
-          pip install kivy buildozer cython
+          pip install --upgrade buildozer cython==0.29.33
       
       - name: Build Android APK
         run: |
           cd src/apps/android
           
-          # Initialize buildozer if needed
-          buildozer android debug || true
+          # Clean previous builds
+          rm -rf .buildozer bin
           
-          # The APK will be in .buildozer/android/platform/build-*/outputs/apk/debug/
+          # Update buildozer.spec version
+          sed -i "s/^version = .*/version = ${{ steps.version.outputs.VERSION }}/" buildozer.spec
+          
+          # Build APK
+          buildozer -v android debug
       
-      - name: Find and upload APK
+      - name: Rename APK
         run: |
-          # Find the generated APK
-          find . -name "*.apk" -type f -exec cp {} winvora-android.apk \; || true
+          # Find and rename the APK
+          APK_PATH=$(find src/apps/android/bin -name "*.apk" -type f | head -n 1)
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" winvora-${{ steps.version.outputs.VERSION }}-android.apk
+            echo "APK created successfully"
+          else
+            echo "No APK found"
+            exit 1
+          fi
       
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: android-builds
           path: |
-            winvora-android.apk
-            src/apps/android/.buildozer/
+            winvora-*-android.apk
 
   create-release:
     needs: [build-linux, build-macos, build-android]
@@ -229,13 +270,20 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
       
+      - name: List downloaded files
+        run: |
+          echo "Downloaded artifacts:"
+          find . -type f
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            linux-builds/*
-            macos-builds/*
-            android-builds/*.apk
+            linux-builds/winvora-*-linux-x86_64
+            linux-builds/winvora-*-linux-x86_64.AppImage
+            linux-builds/winvora-*-linux-amd64.deb
+            macos-builds/winvora-*-macos.dmg
+            android-builds/winvora-*-android.apk
           draft: false
           prerelease: false
         env:
