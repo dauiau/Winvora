@@ -12,6 +12,10 @@ from core.app_library import AppLibrary
 from core.cloud_sync import CloudSync
 from core.advanced_config import AdvancedWineConfig
 from core.performance import PerformanceMonitor
+from core.dxvk import DXVKManager
+from core.prefix_templates import PrefixTemplateManager
+from core.wine_versions import WineVersionManager
+from core.game_stores import GameStoreIntegration
 
 
 class WinvoraCLI:
@@ -24,6 +28,10 @@ class WinvoraCLI:
         self.cloud_sync = CloudSync(self.config)
         self.advanced_config = AdvancedWineConfig()
         self.performance = PerformanceMonitor()
+        self.dxvk = DXVKManager(self.wine_manager)
+        self.templates = PrefixTemplateManager(self.config)
+        self.wine_versions = WineVersionManager(self.config)
+        self.game_stores = GameStoreIntegration(self.wine_manager, self.app_library)
         self.parser = self._create_parser()
     
     def _create_parser(self) -> argparse.ArgumentParser:
@@ -139,6 +147,60 @@ class WinvoraCLI:
         
         cloud_subparsers.add_parser('list', help='List cloud prefixes')
         
+        template_parser = subparsers.add_parser('template', help='Prefix template management')
+        template_subparsers = template_parser.add_subparsers(dest='template_action')
+        
+        template_subparsers.add_parser('list', help='List available templates')
+        
+        create_template_parser = template_subparsers.add_parser('create', help='Create template from prefix')
+        create_template_parser.add_argument('name', help='Template name')
+        create_template_parser.add_argument('prefix', help='Source prefix')
+        create_template_parser.add_argument('--description', help='Template description')
+        
+        apply_template_parser = template_subparsers.add_parser('apply', help='Apply template to prefix')
+        apply_template_parser.add_argument('name', help='Template name')
+        apply_template_parser.add_argument('prefix', help='Target prefix')
+        
+        dxvk_parser = subparsers.add_parser('dxvk', help='DXVK management')
+        dxvk_subparsers = dxvk_parser.add_subparsers(dest='dxvk_action')
+        
+        install_dxvk_parser = dxvk_subparsers.add_parser('install', help='Install DXVK')
+        install_dxvk_parser.add_argument('prefix', help='Prefix name')
+        install_dxvk_parser.add_argument('--version', help='DXVK version (default: latest)')
+        
+        uninstall_dxvk_parser = dxvk_subparsers.add_parser('uninstall', help='Uninstall DXVK')
+        uninstall_dxvk_parser.add_argument('prefix', help='Prefix name')
+        
+        status_dxvk_parser = dxvk_subparsers.add_parser('status', help='Check DXVK status')
+        status_dxvk_parser.add_argument('prefix', help='Prefix name')
+        
+        version_parser = subparsers.add_parser('wine-version', help='Wine version management')
+        version_subparsers = version_parser.add_subparsers(dest='version_action')
+        
+        version_subparsers.add_parser('list', help='List installed Wine versions')
+        
+        download_version_parser = version_subparsers.add_parser('download', help='Download Wine version')
+        download_version_parser.add_argument('version', help='Version identifier (e.g., stable-8.0)')
+        
+        delete_version_parser = version_subparsers.add_parser('delete', help='Delete Wine version')
+        delete_version_parser.add_argument('version', help='Version name')
+        
+        switch_version_parser = version_subparsers.add_parser('switch', help='Switch prefix Wine version')
+        switch_version_parser.add_argument('prefix', help='Prefix name')
+        switch_version_parser.add_argument('version', help='Version name')
+        
+        store_parser = subparsers.add_parser('game-store', help='Game store integration')
+        store_subparsers = store_parser.add_subparsers(dest='store_action')
+        
+        store_subparsers.add_parser('scan-steam', help='Scan Steam library')
+        store_subparsers.add_parser('scan-epic', help='Scan Epic Games library')
+        
+        import_parser = store_subparsers.add_parser('import', help='Import games to library')
+        import_parser.add_argument('store', choices=['steam', 'epic'], help='Store to import from')
+        
+        install_steam_parser = store_subparsers.add_parser('install-steam', help='Install Steam to prefix')
+        install_steam_parser.add_argument('prefix', help='Prefix name')
+        
         return parser
     
     def run(self, args=None):
@@ -166,6 +228,14 @@ class WinvoraCLI:
             return self._handle_shortcut_command(parsed_args)
         elif parsed_args.command == 'cloud':
             return self._handle_cloud_command(parsed_args)
+        elif parsed_args.command == 'template':
+            return self._handle_template_command(parsed_args)
+        elif parsed_args.command == 'dxvk':
+            return self._handle_dxvk_command(parsed_args)
+        elif parsed_args.command == 'wine-version':
+            return self._handle_wine_version_command(parsed_args)
+        elif parsed_args.command == 'game-store':
+            return self._handle_game_store_command(parsed_args)
         
         return 0
     
@@ -464,6 +534,213 @@ class WinvoraCLI:
             else:
                 print("No prefixes in cloud")
             return 0
+        
+        return 0
+    
+    def _handle_template_command(self, args):
+        if not args.template_action:
+            print("Error: Specify template action (list, create, apply)")
+            return 1
+        
+        if args.template_action == 'list':
+            templates = self.templates.list_templates()
+            print("Available Templates:")
+            for template in templates:
+                print(f"  - {template['name']}: {template['description']}")
+            return 0
+        
+        elif args.template_action == 'create':
+            if not args.name:
+                print("Error: Template name required")
+                return 1
+            if args.prefix not in self.wine_manager.prefixes:
+                print(f"Error: Prefix '{args.prefix}' not found")
+                return 1
+            
+            prefix_path = self.wine_manager.prefixes[args.prefix]
+            print(f"Creating template from prefix '{args.prefix}'...")
+            success, message = self.templates.create_template_from_prefix(
+                args.name,
+                prefix_path,
+                description=args.description or f"Template created from {args.prefix}"
+            )
+            print(message)
+            return 0 if success else 1
+        
+        elif args.template_action == 'apply':
+            if not args.name:
+                print("Error: Template name required")
+                return 1
+            if not args.prefix:
+                print("Error: Target prefix name required")
+                return 1
+            
+            print(f"Applying template '{args.name}' to prefix '{args.prefix}'...")
+            success, message = self.templates.apply_template(args.name, args.prefix)
+            print(message)
+            return 0 if success else 1
+        
+        return 0
+    
+    def _handle_dxvk_command(self, args):
+        if not args.dxvk_action:
+            print("Error: Specify DXVK action (install, uninstall, status)")
+            return 1
+        
+        if not args.prefix:
+            print("Error: Prefix name required")
+            return 1
+        
+        if args.prefix not in self.wine_manager.prefixes:
+            print(f"Error: Prefix '{args.prefix}' not found")
+            return 1
+        
+        prefix_path = self.wine_manager.prefixes[args.prefix]
+        
+        if args.dxvk_action == 'install':
+            version = args.version or "latest"
+            print(f"Installing DXVK {version} to prefix '{args.prefix}'...")
+            
+            def progress_callback(progress, message):
+                print(f"[{progress:.0f}%] {message}")
+            
+            success, message = self.dxvk.install_dxvk(
+                prefix_path,
+                version=version,
+                progress_callback=progress_callback
+            )
+            print(message)
+            return 0 if success else 1
+        
+        elif args.dxvk_action == 'uninstall':
+            print(f"Uninstalling DXVK from prefix '{args.prefix}'...")
+            success, message = self.dxvk.uninstall_dxvk(prefix_path)
+            print(message)
+            return 0 if success else 1
+        
+        elif args.dxvk_action == 'status':
+            installed = self.dxvk.is_dxvk_installed(prefix_path)
+            if installed:
+                print(f"DXVK is installed in prefix '{args.prefix}'")
+            else:
+                print(f"DXVK is not installed in prefix '{args.prefix}'")
+            return 0
+        
+        return 0
+    
+    def _handle_wine_version_command(self, args):
+        if not args.version_action:
+            print("Error: Specify version action (list, download, delete, switch)")
+            return 1
+        
+        if args.version_action == 'list':
+            versions = self.wine_versions.list_installed_versions()
+            if versions:
+                print("Installed Wine versions:")
+                for version in versions:
+                    print(f"  - {version.name} ({version.version_type})")
+                    print(f"    Path: {version.path}")
+            else:
+                print("No Wine versions installed")
+            return 0
+        
+        elif args.version_action == 'download':
+            if not args.version:
+                print("Error: Version identifier required (e.g., 'stable-8.0', 'staging-9.0', 'proton-8.0')")
+                return 1
+            
+            print(f"Downloading Wine version '{args.version}'...")
+            
+            def progress_callback(progress, message):
+                print(f"[{progress:.0f}%] {message}")
+            
+            success, message = self.wine_versions.download_wine_version(
+                args.version,
+                progress_callback=progress_callback
+            )
+            print(message)
+            return 0 if success else 1
+        
+        elif args.version_action == 'delete':
+            if not args.version:
+                print("Error: Version name required")
+                return 1
+            
+            success, message = self.wine_versions.delete_wine_version(args.version)
+            print(message)
+            return 0 if success else 1
+        
+        elif args.version_action == 'switch':
+            if not args.prefix:
+                print("Error: Prefix name required")
+                return 1
+            if not args.version:
+                print("Error: Version name required")
+                return 1
+            
+            success, message = self.wine_versions.set_prefix_wine_version(args.prefix, args.version)
+            print(message)
+            return 0 if success else 1
+        
+        return 0
+    
+    def _handle_game_store_command(self, args):
+        if not args.store_action:
+            print("Error: Specify store action (scan-steam, scan-epic, import, install-steam)")
+            return 1
+        
+        if args.store_action == 'scan-steam':
+            print("Scanning Steam library...")
+            games = self.game_stores.scan_steam_library()
+            if games:
+                print(f"Found {len(games)} Steam games:")
+                for game in games[:20]:
+                    print(f"  - {game.name} (ID: {game.app_id})")
+                if len(games) > 20:
+                    print(f"  ... and {len(games) - 20} more")
+            else:
+                print("No Steam games found")
+            return 0
+        
+        elif args.store_action == 'scan-epic':
+            print("Scanning Epic Games library...")
+            games = self.game_stores.scan_epic_library()
+            if games:
+                print(f"Found {len(games)} Epic games:")
+                for game in games[:20]:
+                    print(f"  - {game.display_name}")
+                if len(games) > 20:
+                    print(f"  ... and {len(games) - 20} more")
+            else:
+                print("No Epic games found")
+            return 0
+        
+        elif args.store_action == 'import':
+            if not args.store:
+                print("Error: Specify store (steam or epic)")
+                return 1
+            
+            print(f"Importing {args.store} games to library...")
+            count = self.game_stores.auto_import_games(args.store)
+            print(f"Imported {count} games")
+            return 0
+        
+        elif args.store_action == 'install-steam':
+            if not args.prefix:
+                print("Error: Prefix name required")
+                return 1
+            
+            print(f"Installing Steam to prefix '{args.prefix}'...")
+            
+            def progress_callback(progress, message):
+                print(f"[{progress:.0f}%] {message}")
+            
+            success, message = self.game_stores.install_steam(
+                args.prefix,
+                progress_callback=progress_callback
+            )
+            print(message)
+            return 0 if success else 1
         
         return 0
 
