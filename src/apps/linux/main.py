@@ -16,6 +16,12 @@ except ImportError:
 
 from core.wine_manager import WineManager
 from core.config import Config
+from core.winetricks import WineTricksManager
+from core.app_library import AppLibrary
+from core.dxvk import DXVKManager
+from core.prefix_templates import PrefixTemplateManager
+from core.wine_versions import WineVersionManager
+from core.game_stores import GameStoreIntegration
 from platforms.linux import LinuxPlatform
 
 
@@ -56,6 +62,12 @@ class WinvoraMainWindow(QMainWindow):
         self.wine_manager = WineManager()
         self.config = Config()
         self.platform = LinuxPlatform()
+        self.winetricks = WineTricksManager(self.wine_manager)
+        self.app_library = AppLibrary(self.config)
+        self.dxvk = DXVKManager(self.wine_manager)
+        self.templates = PrefixTemplateManager(self.config)
+        self.wine_versions = WineVersionManager(self.config)
+        self.game_stores = GameStoreIntegration(self.wine_manager, self.app_library)
         
         self.setWindowTitle("Winvora Wine Manager")
         self.setMinimumSize(1000, 700)
@@ -147,6 +159,11 @@ class WinvoraMainWindow(QMainWindow):
         
         tabs.addTab(self._create_prefixes_tab(), "🍷 Wine Prefixes")
         tabs.addTab(self._create_applications_tab(), "📦 Applications")
+        tabs.addTab(self._create_library_tab(), "📚 Library")
+        tabs.addTab(self._create_templates_tab(), "📋 Templates")
+        tabs.addTab(self._create_winetricks_tab(), "🧰 Winetricks")
+        tabs.addTab(self._create_wine_versions_tab(), "🍾 Wine Versions")
+        tabs.addTab(self._create_game_stores_tab(), "🎮 Game Stores")
         tabs.addTab(self._create_processes_tab(), "⚙️ Processes")
         tabs.addTab(self._create_settings_tab(), "🔧 Settings")
         
@@ -460,6 +477,417 @@ class WinvoraMainWindow(QMainWindow):
         
         count = len(processes)
         self.statusBar().showMessage(f"Found {count} Wine process{'es' if count != 1 else ''}")
+    
+    def _create_library_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+        
+        desc = QLabel("Browse and manage your application library")
+        desc.setStyleSheet("color: #666666; font-size: 13px; margin-bottom: 8px;")
+        layout.addWidget(desc)
+        
+        list_group = QGroupBox("Application Library")
+        list_layout = QVBoxLayout(list_group)
+        
+        self.library_list = QListWidget()
+        list_layout.addWidget(self.library_list)
+        
+        button_layout = QHBoxLayout()
+        add_button = StyledButton("➕ Add Application", primary=True)
+        add_button.clicked.connect(self._add_to_library)
+        button_layout.addWidget(add_button)
+        
+        remove_button = StyledButton("🗑️ Remove")
+        remove_button.clicked.connect(self._remove_from_library)
+        button_layout.addWidget(remove_button)
+        
+        refresh_button = StyledButton("🔄 Refresh")
+        refresh_button.clicked.connect(self._refresh_library)
+        button_layout.addWidget(refresh_button)
+        
+        button_layout.addStretch()
+        list_layout.addLayout(button_layout)
+        
+        layout.addWidget(list_group)
+        self._refresh_library()
+        
+        return widget
+    
+    def _create_templates_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+        
+        desc = QLabel("Use prefix templates for quick setup of common configurations")
+        desc.setStyleSheet("color: #666666; font-size: 13px; margin-bottom: 8px;")
+        layout.addWidget(desc)
+        
+        list_group = QGroupBox("Available Templates")
+        list_layout = QVBoxLayout(list_group)
+        
+        self.template_list = QListWidget()
+        list_layout.addWidget(self.template_list)
+        
+        button_layout = QHBoxLayout()
+        apply_button = StyledButton("✅ Apply to Prefix", primary=True)
+        apply_button.clicked.connect(self._apply_template)
+        button_layout.addWidget(apply_button)
+        
+        create_button = StyledButton("➕ Create from Prefix")
+        create_button.clicked.connect(self._create_template)
+        button_layout.addWidget(create_button)
+        
+        refresh_button = StyledButton("🔄 Refresh")
+        refresh_button.clicked.connect(self._refresh_templates)
+        button_layout.addWidget(refresh_button)
+        
+        button_layout.addStretch()
+        list_layout.addLayout(button_layout)
+        
+        layout.addWidget(list_group)
+        self._refresh_templates()
+        
+        return widget
+    
+    def _create_winetricks_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+        
+        desc = QLabel("Install Windows components and DLLs using Winetricks")
+        desc.setStyleSheet("color: #666666; font-size: 13px; margin-bottom: 8px;")
+        layout.addWidget(desc)
+        
+        list_group = QGroupBox("Common Components")
+        list_layout = QVBoxLayout(list_group)
+        
+        self.component_list = QListWidget()
+        components = self.winetricks.list_common_components()
+        for category, items in components.items():
+            for item, desc in items.items():
+                self.component_list.addItem(f"{item} - {desc}")
+        list_layout.addWidget(self.component_list)
+        
+        button_layout = QHBoxLayout()
+        install_button = StyledButton("📥 Install to Prefix", primary=True)
+        install_button.clicked.connect(self._install_component)
+        button_layout.addWidget(install_button)
+        
+        button_layout.addStretch()
+        list_layout.addLayout(button_layout)
+        
+        layout.addWidget(list_group)
+        
+        return widget
+    
+    def _create_wine_versions_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+        
+        desc = QLabel("Manage multiple Wine versions and assign them to prefixes")
+        desc.setStyleSheet("color: #666666; font-size: 13px; margin-bottom: 8px;")
+        layout.addWidget(desc)
+        
+        list_group = QGroupBox("Installed Wine Versions")
+        list_layout = QVBoxLayout(list_group)
+        
+        self.wine_version_list = QListWidget()
+        list_layout.addWidget(self.wine_version_list)
+        
+        button_layout = QHBoxLayout()
+        download_button = StyledButton("⬇️ Download Version", primary=True)
+        download_button.clicked.connect(self._download_wine_version)
+        button_layout.addWidget(download_button)
+        
+        switch_button = StyledButton("🔄 Set for Prefix")
+        switch_button.clicked.connect(self._switch_wine_version)
+        button_layout.addWidget(switch_button)
+        
+        delete_button = StyledButton("🗑️ Delete")
+        delete_button.clicked.connect(self._delete_wine_version)
+        button_layout.addWidget(delete_button)
+        
+        refresh_button = StyledButton("🔄 Refresh")
+        refresh_button.clicked.connect(self._refresh_wine_versions)
+        button_layout.addWidget(refresh_button)
+        
+        button_layout.addStretch()
+        list_layout.addLayout(button_layout)
+        
+        layout.addWidget(list_group)
+        self._refresh_wine_versions()
+        
+        return widget
+    
+    def _create_game_stores_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+        
+        desc = QLabel("Integrate with Steam and Epic Games to import your library")
+        desc.setStyleSheet("color: #666666; font-size: 13px; margin-bottom: 8px;")
+        layout.addWidget(desc)
+        
+        steam_group = QGroupBox("Steam Library")
+        steam_layout = QVBoxLayout(steam_group)
+        
+        steam_button_layout = QHBoxLayout()
+        scan_steam_button = StyledButton("🔍 Scan Steam", primary=True)
+        scan_steam_button.clicked.connect(self._scan_steam)
+        steam_button_layout.addWidget(scan_steam_button)
+        
+        import_steam_button = StyledButton("📥 Import to Library")
+        import_steam_button.clicked.connect(self._import_steam)
+        steam_button_layout.addWidget(import_steam_button)
+        
+        install_steam_button = StyledButton("💿 Install Steam")
+        install_steam_button.clicked.connect(self._install_steam)
+        steam_button_layout.addWidget(install_steam_button)
+        
+        steam_button_layout.addStretch()
+        steam_layout.addLayout(steam_button_layout)
+        
+        self.steam_games_label = QLabel("Click 'Scan Steam' to find games")
+        self.steam_games_label.setStyleSheet("color: #666666; padding: 8px;")
+        steam_layout.addWidget(self.steam_games_label)
+        
+        layout.addWidget(steam_group)
+        
+        epic_group = QGroupBox("Epic Games Library")
+        epic_layout = QVBoxLayout(epic_group)
+        
+        epic_button_layout = QHBoxLayout()
+        scan_epic_button = StyledButton("🔍 Scan Epic Games", primary=True)
+        scan_epic_button.clicked.connect(self._scan_epic)
+        epic_button_layout.addWidget(scan_epic_button)
+        
+        import_epic_button = StyledButton("📥 Import to Library")
+        import_epic_button.clicked.connect(self._import_epic)
+        epic_button_layout.addWidget(import_epic_button)
+        
+        epic_button_layout.addStretch()
+        epic_layout.addLayout(epic_button_layout)
+        
+        self.epic_games_label = QLabel("Click 'Scan Epic Games' to find games")
+        self.epic_games_label.setStyleSheet("color: #666666; padding: 8px;")
+        epic_layout.addWidget(self.epic_games_label)
+        
+        layout.addWidget(epic_group)
+        layout.addStretch()
+        
+        return widget
+    
+    def _add_to_library(self):
+        name, ok = QInputDialog.getText(self, "Add Application", "Application name:")
+        if not ok or not name:
+            return
+        
+        prefix, ok = QInputDialog.getText(self, "Add Application", "Prefix name:")
+        if not ok or not prefix:
+            return
+        
+        exe_path, _ = QFileDialog.getOpenFileName(self, "Select Executable")
+        if not exe_path:
+            return
+        
+        category, ok = QInputDialog.getText(self, "Add Application", "Category:", text="Games")
+        if not ok:
+            category = "Games"
+        
+        app_id = self.app_library.add_app(name, prefix, exe_path, category)
+        if app_id:
+            QMessageBox.information(self, "Success", f"Application '{name}' added to library")
+            self._refresh_library()
+        else:
+            QMessageBox.warning(self, "Error", "Failed to add application")
+    
+    def _remove_from_library(self):
+        selected = self.library_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "Please select an application")
+            return
+        
+        app_text = selected.text()
+        app_id = app_text.split(" -")[0]
+        
+        reply = QMessageBox.question(self, "Confirm", f"Remove '{app_text}' from library?")
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.app_library.remove_app(app_id):
+                QMessageBox.information(self, "Success", "Application removed")
+                self._refresh_library()
+            else:
+                QMessageBox.warning(self, "Error", "Failed to remove application")
+    
+    def _refresh_library(self):
+        self.library_list.clear()
+        apps = self.app_library.list_apps()
+        for app in apps:
+            self.library_list.addItem(f"{app['id']} - {app['name']} ({app['category']})")
+    
+    def _apply_template(self):
+        selected = self.template_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "Please select a template")
+            return
+        
+        template_name = selected.text().split(" -")[0]
+        prefix, ok = QInputDialog.getText(self, "Apply Template", "Target prefix name:")
+        if not ok or not prefix:
+            return
+        
+        success, message = self.templates.apply_template(template_name, prefix)
+        if success:
+            QMessageBox.information(self, "Success", message)
+            self._refresh_prefixes()
+        else:
+            QMessageBox.warning(self, "Error", message)
+    
+    def _create_template(self):
+        prefix, ok = QInputDialog.getText(self, "Create Template", "Source prefix name:")
+        if not ok or not prefix:
+            return
+        
+        name, ok = QInputDialog.getText(self, "Create Template", "Template name:")
+        if not ok or not name:
+            return
+        
+        desc, ok = QInputDialog.getText(self, "Create Template", "Description (optional):")
+        if not ok:
+            desc = ""
+        
+        if prefix not in self.wine_manager.prefixes:
+            QMessageBox.warning(self, "Error", f"Prefix '{prefix}' not found")
+            return
+        
+        prefix_path = self.wine_manager.prefixes[prefix]
+        success, message = self.templates.create_template_from_prefix(name, prefix_path, desc)
+        if success:
+            QMessageBox.information(self, "Success", message)
+            self._refresh_templates()
+        else:
+            QMessageBox.warning(self, "Error", message)
+    
+    def _refresh_templates(self):
+        self.template_list.clear()
+        templates = self.templates.list_templates()
+        for template in templates:
+            self.template_list.addItem(f"{template['name']} - {template['description']}")
+    
+    def _install_component(self):
+        selected = self.component_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "Please select a component")
+            return
+        
+        component = selected.text().split(" -")[0]
+        prefix, ok = QInputDialog.getText(self, "Install Component", "Target prefix name:")
+        if not ok or not prefix:
+            return
+        
+        if prefix not in self.wine_manager.prefixes:
+            QMessageBox.warning(self, "Error", f"Prefix '{prefix}' not found")
+            return
+        
+        success, message = self.winetricks.install_component(prefix, component)
+        if success:
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Error", message)
+    
+    def _download_wine_version(self):
+        version, ok = QInputDialog.getText(self, "Download Wine", 
+                                          "Version identifier (e.g., 'stable-8.0', 'staging-9.0', 'proton-8.0'):")
+        if not ok or not version:
+            return
+        
+        self.statusBar().showMessage(f"Downloading Wine {version}...")
+        success, message = self.wine_versions.download_wine_version(version)
+        if success:
+            QMessageBox.information(self, "Success", message)
+            self._refresh_wine_versions()
+        else:
+            QMessageBox.warning(self, "Error", message)
+        self.statusBar().showMessage("Ready")
+    
+    def _switch_wine_version(self):
+        selected = self.wine_version_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "Please select a Wine version")
+            return
+        
+        version_name = selected.text().split(" (")[0]
+        prefix, ok = QInputDialog.getText(self, "Switch Wine Version", "Prefix name:")
+        if not ok or not prefix:
+            return
+        
+        success, message = self.wine_versions.set_prefix_wine_version(prefix, version_name)
+        if success:
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Error", message)
+    
+    def _delete_wine_version(self):
+        selected = self.wine_version_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "Please select a Wine version")
+            return
+        
+        version_name = selected.text().split(" (")[0]
+        reply = QMessageBox.question(self, "Confirm", f"Delete Wine version '{version_name}'?")
+        if reply == QMessageBox.StandardButton.Yes:
+            success, message = self.wine_versions.delete_wine_version(version_name)
+            if success:
+                QMessageBox.information(self, "Success", message)
+                self._refresh_wine_versions()
+            else:
+                QMessageBox.warning(self, "Error", message)
+    
+    def _refresh_wine_versions(self):
+        self.wine_version_list.clear()
+        versions = self.wine_versions.list_installed_versions()
+        for version in versions:
+            self.wine_version_list.addItem(f"{version.name} ({version.version_type})")
+    
+    def _scan_steam(self):
+        self.statusBar().showMessage("Scanning Steam library...")
+        games = self.game_stores.scan_steam_library()
+        self.steam_games_label.setText(f"Found {len(games)} Steam games")
+        self.statusBar().showMessage("Ready")
+    
+    def _import_steam(self):
+        reply = QMessageBox.question(self, "Confirm", "Import all Steam games to library?")
+        if reply == QMessageBox.StandardButton.Yes:
+            count = self.game_stores.auto_import_games('steam')
+            QMessageBox.information(self, "Success", f"Imported {count} games")
+            self._refresh_library()
+    
+    def _install_steam(self):
+        prefix, ok = QInputDialog.getText(self, "Install Steam", "Prefix name:")
+        if not ok or not prefix:
+            return
+        
+        self.statusBar().showMessage(f"Installing Steam to '{prefix}'...")
+        success, message = self.game_stores.install_steam(prefix)
+        if success:
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Error", message)
+        self.statusBar().showMessage("Ready")
+    
+    def _scan_epic(self):
+        self.statusBar().showMessage("Scanning Epic Games library...")
+        games = self.game_stores.scan_epic_library()
+        self.epic_games_label.setText(f"Found {len(games)} Epic games")
+        self.statusBar().showMessage("Ready")
+    
+    def _import_epic(self):
+        reply = QMessageBox.question(self, "Confirm", "Import all Epic games to library?")
+        if reply == QMessageBox.StandardButton.Yes:
+            count = self.game_stores.auto_import_games('epic')
+            QMessageBox.information(self, "Success", f"Imported {count} games")
+            self._refresh_library()
     
     def _update_system_info(self):
         info = self.platform.get_system_info()
