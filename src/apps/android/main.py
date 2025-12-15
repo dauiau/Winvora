@@ -22,6 +22,12 @@ except ImportError:
 
 from core.wine_manager import WineManager
 from core.config import Config
+from core.winetricks import WineTricksManager
+from core.app_library import AppLibrary
+from core.dxvk import DXVKManager
+from core.prefix_templates import PrefixTemplateManager
+from core.wine_versions import WineVersionManager
+from core.game_stores import GameStoreIntegration
 from platforms.android import AndroidPlatform
 
 
@@ -670,15 +676,306 @@ class SettingsScreen(Screen):
         popup.open()
 
 
+class LibraryScreen(Screen):
+    def __init__(self, app_library, **kwargs):
+        super().__init__(**kwargs)
+        self.app_library = app_library
+        
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        title = Label(
+            text='Application Library',
+            size_hint_y=None,
+            height=50,
+            font_size=24,
+            bold=True
+        )
+        layout.add_widget(title)
+        
+        scroll = ScrollView()
+        self.apps_list = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.apps_list.bind(minimum_height=self.apps_list.setter('height'))
+        scroll.add_widget(self.apps_list)
+        layout.add_widget(scroll)
+        
+        button_layout = BoxLayout(size_hint_y=None, height=60, spacing=5)
+        
+        refresh_btn = StyledButton(text='🔄 Refresh')
+        refresh_btn.bind(on_press=self.refresh_library)
+        button_layout.add_widget(refresh_btn)
+        
+        layout.add_widget(button_layout)
+        self.add_widget(layout)
+        
+        Clock.schedule_once(lambda dt: self.refresh_library(None))
+    
+    def refresh_library(self, instance):
+        self.apps_list.clear_widgets()
+        apps = self.app_library.list_apps()
+        
+        if not apps:
+            label = Label(text='No applications in library', size_hint_y=None, height=50)
+            self.apps_list.add_widget(label)
+            return
+        
+        for app in apps:
+            btn = SecondaryButton(
+                text=f"{app['name']} ({app['category']})",
+                size_hint_y=None,
+                height=60
+            )
+            self.apps_list.add_widget(btn)
+
+
+class TemplatesScreen(Screen):
+    def __init__(self, templates, wine_manager, **kwargs):
+        super().__init__(**kwargs)
+        self.templates = templates
+        self.wine_manager = wine_manager
+        
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        title = Label(
+            text='Prefix Templates',
+            size_hint_y=None,
+            height=50,
+            font_size=24,
+            bold=True
+        )
+        layout.add_widget(title)
+        
+        scroll = ScrollView()
+        self.template_list = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.template_list.bind(minimum_height=self.template_list.setter('height'))
+        scroll.add_widget(self.template_list)
+        layout.add_widget(scroll)
+        
+        button_layout = BoxLayout(size_hint_y=None, height=60, spacing=5)
+        
+        refresh_btn = StyledButton(text='🔄 Refresh')
+        refresh_btn.bind(on_press=self.refresh_templates)
+        button_layout.add_widget(refresh_btn)
+        
+        layout.add_widget(button_layout)
+        self.add_widget(layout)
+        
+        Clock.schedule_once(lambda dt: self.refresh_templates(None))
+    
+    def refresh_templates(self, instance):
+        self.template_list.clear_widgets()
+        templates = self.templates.list_templates()
+        
+        if not templates:
+            label = Label(text='No templates available', size_hint_y=None, height=50)
+            self.template_list.add_widget(label)
+            return
+        
+        for template in templates:
+            btn = SecondaryButton(
+                text=f"{template['name']} - {template['description']}",
+                size_hint_y=None,
+                height=80
+            )
+            self.template_list.add_widget(btn)
+
+
+class WinetricksScreen(Screen):
+    def __init__(self, winetricks, wine_manager, **kwargs):
+        super().__init__(**kwargs)
+        self.winetricks = winetricks
+        self.wine_manager = wine_manager
+        
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        title = Label(
+            text='Winetricks Components',
+            size_hint_y=None,
+            height=50,
+            font_size=24,
+            bold=True
+        )
+        layout.add_widget(title)
+        
+        scroll = ScrollView()
+        self.component_list = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.component_list.bind(minimum_height=self.component_list.setter('height'))
+        scroll.add_widget(self.component_list)
+        layout.add_widget(scroll)
+        
+        self.add_widget(layout)
+        
+        Clock.schedule_once(lambda dt: self.load_components())
+    
+    def load_components(self):
+        self.component_list.clear_widgets()
+        components = self.winetricks.list_common_components()
+        
+        for category, items in components.items():
+            cat_label = Label(
+                text=f'\n{category}',
+                size_hint_y=None,
+                height=40,
+                bold=True
+            )
+            self.component_list.add_widget(cat_label)
+            
+            for item, desc in list(items.items())[:5]:
+                btn = SecondaryButton(
+                    text=f"{item} - {desc}",
+                    size_hint_y=None,
+                    height=60
+                )
+                self.component_list.add_widget(btn)
+
+
+class WineVersionsScreen(Screen):
+    def __init__(self, wine_versions, **kwargs):
+        super().__init__(**kwargs)
+        self.wine_versions = wine_versions
+        
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        title = Label(
+            text='Wine Versions',
+            size_hint_y=None,
+            height=50,
+            font_size=24,
+            bold=True
+        )
+        layout.add_widget(title)
+        
+        scroll = ScrollView()
+        self.version_list = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.version_list.bind(minimum_height=self.version_list.setter('height'))
+        scroll.add_widget(self.version_list)
+        layout.add_widget(scroll)
+        
+        button_layout = BoxLayout(size_hint_y=None, height=60, spacing=5)
+        
+        refresh_btn = StyledButton(text='🔄 Refresh')
+        refresh_btn.bind(on_press=self.refresh_versions)
+        button_layout.add_widget(refresh_btn)
+        
+        layout.add_widget(button_layout)
+        self.add_widget(layout)
+        
+        Clock.schedule_once(lambda dt: self.refresh_versions(None))
+    
+    def refresh_versions(self, instance):
+        self.version_list.clear_widgets()
+        versions = self.wine_versions.list_installed_versions()
+        
+        if not versions:
+            label = Label(text='No Wine versions installed', size_hint_y=None, height=50)
+            self.version_list.add_widget(label)
+            return
+        
+        for version in versions:
+            btn = SecondaryButton(
+                text=f"{version.name} ({version.version_type})",
+                size_hint_y=None,
+                height=60
+            )
+            self.version_list.add_widget(btn)
+
+
+class GameStoresScreen(Screen):
+    def __init__(self, game_stores, app_library, **kwargs):
+        super().__init__(**kwargs)
+        self.game_stores = game_stores
+        self.app_library = app_library
+        
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        title = Label(
+            text='Game Store Integration',
+            size_hint_y=None,
+            height=50,
+            font_size=24,
+            bold=True
+        )
+        layout.add_widget(title)
+        
+        steam_section = BoxLayout(orientation='vertical', size_hint_y=None, height=150, spacing=5)
+        steam_label = Label(text='Steam Library', bold=True, size_hint_y=None, height=30)
+        steam_section.add_widget(steam_label)
+        
+        self.steam_info = Label(text='Click scan to find games', size_hint_y=None, height=30)
+        steam_section.add_widget(self.steam_info)
+        
+        steam_buttons = BoxLayout(size_hint_y=None, height=60, spacing=5)
+        
+        scan_steam = StyledButton(text='🔍 Scan')
+        scan_steam.bind(on_press=self.scan_steam)
+        steam_buttons.add_widget(scan_steam)
+        
+        import_steam = SecondaryButton(text='📥 Import')
+        import_steam.bind(on_press=self.import_steam)
+        steam_buttons.add_widget(import_steam)
+        
+        steam_section.add_widget(steam_buttons)
+        layout.add_widget(steam_section)
+        
+        epic_section = BoxLayout(orientation='vertical', size_hint_y=None, height=150, spacing=5)
+        epic_label = Label(text='Epic Games Library', bold=True, size_hint_y=None, height=30)
+        epic_section.add_widget(epic_label)
+        
+        self.epic_info = Label(text='Click scan to find games', size_hint_y=None, height=30)
+        epic_section.add_widget(self.epic_info)
+        
+        epic_buttons = BoxLayout(size_hint_y=None, height=60, spacing=5)
+        
+        scan_epic = StyledButton(text='🔍 Scan')
+        scan_epic.bind(on_press=self.scan_epic)
+        epic_buttons.add_widget(scan_epic)
+        
+        import_epic = SecondaryButton(text='📥 Import')
+        import_epic.bind(on_press=self.import_epic)
+        epic_buttons.add_widget(import_epic)
+        
+        epic_section.add_widget(epic_buttons)
+        layout.add_widget(epic_section)
+        
+        layout.add_widget(Label())
+        self.add_widget(layout)
+    
+    def scan_steam(self, instance):
+        games = self.game_stores.scan_steam_library()
+        self.steam_info.text = f"Found {len(games)} Steam games"
+    
+    def import_steam(self, instance):
+        count = self.game_stores.auto_import_games('steam')
+        self.steam_info.text = f"Imported {count} games to library"
+    
+    def scan_epic(self, instance):
+        games = self.game_stores.scan_epic_library()
+        self.epic_info.text = f"Found {len(games)} Epic games"
+    
+    def import_epic(self, instance):
+        count = self.game_stores.auto_import_games('epic')
+        self.epic_info.text = f"Imported {count} games to library"
+
+
 class WinvoraApp(App):
     def build(self):
         self.wine_manager = WineManager()
         self.config = Config()
         self.platform = AndroidPlatform()
+        self.winetricks = WineTricksManager(self.wine_manager)
+        self.app_library = AppLibrary(self.config)
+        self.dxvk = DXVKManager(self.wine_manager)
+        self.templates = PrefixTemplateManager(self.config)
+        self.wine_versions = WineVersionManager(self.config)
+        self.game_stores = GameStoreIntegration(self.wine_manager, self.app_library)
         
         sm = ScreenManager()
         sm.add_widget(PrefixesScreen(self.wine_manager, name='prefixes'))
         sm.add_widget(ApplicationsScreen(self.wine_manager, name='apps'))
+        sm.add_widget(LibraryScreen(self.app_library, name='library'))
+        sm.add_widget(TemplatesScreen(self.templates, self.wine_manager, name='templates'))
+        sm.add_widget(WinetricksScreen(self.winetricks, self.wine_manager, name='winetricks'))
+        sm.add_widget(WineVersionsScreen(self.wine_versions, name='versions'))
+        sm.add_widget(GameStoresScreen(self.game_stores, self.app_library, name='stores'))
         sm.add_widget(ProcessesScreen(self.wine_manager, name='processes'))
         sm.add_widget(SettingsScreen(
             self.wine_manager, self.platform, self.config, name='settings'
@@ -692,6 +989,11 @@ class WinvoraApp(App):
         nav_buttons = [
             ('🍷 Prefixes', 'prefixes'),
             ('📦 Apps', 'apps'),
+            ('📚 Library', 'library'),
+            ('📋 Templates', 'templates'),
+            ('🧰 Tools', 'winetricks'),
+            ('🍾 Versions', 'versions'),
+            ('🎮 Stores', 'stores'),
             ('⚙️ Processes', 'processes'),
             ('🔧 Settings', 'settings')
         ]
