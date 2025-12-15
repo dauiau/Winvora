@@ -221,14 +221,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       
-      - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses || true
-      
-      - name: Install Android SDK components
-        run: |
-          sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
-      
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -238,6 +230,19 @@ jobs:
           
           python -m pip install --upgrade pip
           pip install --upgrade buildozer cython==0.29.33
+      
+      - name: Accept all Android licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --update || true
+      
+      - name: Install Android SDK components  
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-31" \
+            "build-tools;30.0.3" \
+            "ndk;25.2.9519653"
       
       - name: Build Android APK
         run: |
@@ -249,9 +254,11 @@ jobs:
           # Update buildozer.spec version
           sed -i "s/^version = .*/version = ${{ steps.version.outputs.VERSION }}/" buildozer.spec
           
-          # Set Android SDK environment variables
-          export ANDROID_SDK_ROOT=$ANDROID_HOME
-          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          # Set environment variables for buildozer
+          export ANDROIDSDK=$ANDROID_HOME
+          export ANDROIDNDK=$ANDROID_HOME/ndk/25.2.9519653
+          export ANDROIDAPI=31
+          export ANDROIDNDKVER=r25b
           
           # Build APK
           buildozer -v android debug
